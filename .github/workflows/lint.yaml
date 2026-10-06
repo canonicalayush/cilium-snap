@@ -1,8 +1,7 @@
 name: Lint and Formatting
 
-on:
+"on":
   pull_request:
-
 permissions:
   contents: read
 
@@ -16,7 +15,8 @@ jobs:
 
       - name: Validate bash syntax (bash -n)
         run: |
-          find . -type f \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" -o -name "install-cni" \) \
+          find . -type f \
+            \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" -o -name "install-cni" \) \
             -not -path "*/.*" -exec bash -n {} +
 
       - name: Run ShellCheck
@@ -43,7 +43,7 @@ jobs:
 
       - name: Run yamllint
         run: |
-          yamllint -d "{extends: default, rules: {line-length: {max: 120, allow-non-breakable-words: true}, document-start: disable}}" snap/snapcraft.yaml .github/
+          yamllint -c .yamllint.yaml snap/snapcraft.yaml .github/
 
   formatting-and-spelling:
     name: Markdown & Codespell

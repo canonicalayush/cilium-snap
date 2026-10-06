@@ -70,7 +70,9 @@ parts:
       # Snap version strings are capped at 32 characters, so abbreviate the
       # pinned SHA here. The full 40-char ref stays in components/cilium/version,
       # which is what the build actually fetches.
-      craftctl set version="$(cat $CRAFT_PART_BUILD/cilium/VERSION)+git.$(cut -c1-12 $CRAFT_PROJECT_DIR/build-scripts/components/cilium/version)"
+      CILIUM_VERSION="$(cat "$CRAFT_PART_BUILD/cilium/VERSION")"
+      CILIUM_GIT_REV="$(cut -c1-12 "$CRAFT_PROJECT_DIR/build-scripts/components/cilium/version")"
+      craftctl set version="${CILIUM_VERSION}+git.${CILIUM_GIT_REV}"
 
   etcd:
     after: [build-deps]
