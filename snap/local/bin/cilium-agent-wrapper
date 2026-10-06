@@ -1,0 +1,129 @@
+#!/bin/bash
+# cilium-agent, configured for standalone (no-apiserver) operation.
+set -eu
+
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+
+# NOTE: PATH is set by the top-level `environment:` block in snapcraft.yaml.
+# That block *does* apply to daemons -- snapd injects it in `snap run`, which
+# is what the generated unit's ExecStart invokes. (The unit's own
+# `Environment=` is empty, which is misleading: it is not how snapd passes
+# this through.)
+
+STATE_DIR="$SNAP_COMMON/cilium/state"
+LIB_DIR="$SNAP_COMMON/cilium/lib"
+mkdir -p "$STATE_DIR" "$LIB_DIR" /var/run/cilium
+
+# --- host mounts -------------------------------------------------------
+# bpffs holds the pinned maps that survive agent restarts
+# (pkg/bpf/bpffs_linux.go); cgroup2 is required for socket-LB attach points.
+# snapd refused to do these mounts for confined snaps (LP#2048506), so a
+# classic snap must do them itself.
+mountpoint -q "$BPF_ROOT" || mount -t bpf bpf "$BPF_ROOT"
+mkdir -p "$CGROUP_ROOT"
+mountpoint -q "$CGROUP_ROOT" || mount -t cgroup2 none "$CGROUP_ROOT"
+
+# --- datapath sources --------------------------------------------------
+# cilium-agent compiles bpf_lxc.c and friends at runtime
+# (pkg/datapath/loader/compile.go:36), so --lib-dir must be writable. $SNAP is
+# read-only, so refresh the sources into SNAP_COMMON on every start; this also
+# picks up new sources after a snap refresh.
+rsync -a --delete "$SNAP/var/lib/cilium/bpf/" "$LIB_DIR/bpf/"
+
+# --- wait for the kvstore ----------------------------------------------
+# `after: [etcd]` is start-ordering only: systemd considers a simple service
+# started the instant it forks, which is seconds before etcd binds 2379.
+ETCD_HOST="$(echo "$ETCD_LISTEN_URL" | sed -E 's#^https?://##; s#:.*##')"
+ETCD_PORT="$(echo "$ETCD_LISTEN_URL" | sed -E 's#.*:##')"
+for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
+  if (exec 3<>"/dev/tcp/${ETCD_HOST}/${ETCD_PORT}") 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+
+# --- flags -------------------------------------------------------------
+# --enable-k8s=false            pkg/option/config.go:177
+# --kvstore=etcd                mandatory: with it unset, config.go:2784-2789
+#                               rewrites identity-allocation-mode to "crd",
+#                               which needs an apiserver.
+# --ipam                        default is cluster-pool, which standalone needs
+#                               only --ipv4-range for. An earlier version of
+#                               this wrapper used delegated-plugin on the
+#                               mistaken belief that cluster-pool was ruled out
+#                               by K8sRequireIPv4PodCIDR (config.go:2796-2805);
+#                               that flag is inert when k8s is disabled, because
+#                               WaitForNodeInformation (daemon/cmd/daemon.go:162)
+#                               sits inside the `if Clientset.IsEnabled()` block
+#                               at :145-165 and is never reached. Verified by
+#                               running it. "crd"/"eni"/"azure"/"alibabacloud"/
+#                               "multi-pool" do need CRDs; delegated-plugin also
+#                               works but requires an external IPAM plugin plus
+#                               the flag chain described below.
+# --- egress masquerade interface ---------------------------------------
+# newManager panics outright if masquerading is on, the IPAM mode is neither
+# cluster-pool nor kubernetes, and no egress interface is named
+# (pkg/datapath/iptables/iptables.go:457-460): without a guaranteed PodCIDR,
+# the MASQ rules have to be interface-specific rather than source-range based.
+# cluster-pool is exempt by name, so this only bites for delegated-plugin and
+# the cloud modes. Resolved best-effort and passed only when found -- a missing
+# default route is not fatal under cluster-pool.
+if [ -z "$EGRESS_INTERFACE" ]; then
+  EGRESS_INTERFACE="$(ip -4 route show default | awk '{print $5; exit}')" || true
+fi
+
+# The flags below the common set exist because of --ipam=delegated-plugin,
+# which is no longer the default but is still supported. They are harmless
+# under cluster-pool (verified running), so they are passed unconditionally
+# rather than branching:
+#   checkIPAMDelegatedPlugin (config.go:2993-3015) requires --local-router-ipv4
+#   (:2998), --enable-endpoint-health-checking=false (:3004) and
+#   --enable-envoy-config=false (:3010), because with delegated IPAM the CNI
+#   binary owns allocation and the daemon must not allocate for itself.
+# Setting --local-router-ipv4 in turn requires native (or hybrid) routing
+# (daemon_main.go:1064-1066, RequiresNativeRouting at config.go:1963), while
+# the default routing mode is "tunnel" (defaults.go:438) -- hence
+# --routing-mode=native.
+#
+# Native routing + IPv4 masquerade then demands an explicit native routing
+# CIDR (checkIPv4NativeRoutingCIDR, config.go:2944-2969). That check passes
+# only if the CIDR is set, or masquerade is off, or the ip-masq-agent is on,
+# or routing is not native, or IPAM is eni/alibabacloud. It applies to
+# cluster-pool under native routing too, so the CIDR stays mandatory here and
+# should cover the pod range.
+#
+# IPv6 is off by default here purely to keep the PoC single-stack: leaving it
+# on would demand both --ipv6-native-routing-cidr
+# (checkIPv6NativeRoutingCIDR, config.go:2971-2991) and --local-router-ipv6
+# (config.go:3001).
+set -- \
+  --enable-k8s=false \
+  --kvstore=etcd \
+  --kvstore-opt "etcd.address=${ETCD_HOST}:${ETCD_PORT}" \
+  --identity-allocation-mode=kvstore \
+  --ipam="$IPAM" \
+  --enable-ipv4="$ENABLE_IPV4" \
+  --enable-ipv6="$ENABLE_IPV6" \
+  --routing-mode="$ROUTING_MODE" \
+  --local-router-ipv4="$LOCAL_ROUTER_IPV4" \
+  --ipv4-native-routing-cidr="$NATIVE_ROUTING_CIDR" \
+  --enable-endpoint-health-checking=false \
+  --enable-envoy-config=false \
+  --bpf-root="$BPF_ROOT" \
+  --cgroup-root="$CGROUP_ROOT" \
+  --state-dir="$STATE_DIR" \
+  --lib-dir="$LIB_DIR" \
+  --debug="$DEBUG"
+
+[ -n "$IPV4_RANGE" ] && set -- "$@" --ipv4-range="$IPV4_RANGE"
+[ -n "$EGRESS_INTERFACE" ] && set -- "$@" --egress-masquerade-interfaces="$EGRESS_INTERFACE"
+
+# Deliberately NOT setting K8S_NODE_NAME: with it empty and no PodCIDR
+# required, WaitForNodeInformation returns immediately
+# (local_node_sync_wait.go:85-91) instead of waiting out its 10s timeout.
+unset K8S_NODE_NAME
+
+# shellcheck disable=SC2086
+exec "$SNAP/usr/bin/cilium-agent" "$@" $EXTRA_ARGS

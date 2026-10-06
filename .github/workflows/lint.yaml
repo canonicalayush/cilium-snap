@@ -1,0 +1,78 @@
+name: Lint and Formatting
+
+"on":
+  pull_request:
+permissions:
+  contents: read
+
+jobs:
+  shell-lint:
+    name: Shell scripts (ShellCheck & syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate bash syntax (bash -n)
+        run: |
+          find . -type f \
+            \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" -o -name "install-cni" \) \
+            -not -path "*/.*" -exec bash -n {} +
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+        env:
+          SHELLCHECK_OPTS: -e SC1090,SC1091
+
+  yaml-lint:
+    name: YAML lint (yamllint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: |
+          yamllint -c .yamllint.yaml snap/snapcraft.yaml .github/
+
+  formatting-and-spelling:
+    name: Markdown & Codespell
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run codespell
+        uses: codespell-project/actions-codespell@v2
+        with:
+          skip: ".git,.github"
+          check_filenames: true
+
+      - name: Check line endings and trailing whitespace
+        run: |
+          # Ensure Unix LF line endings
+          if grep -rIl $'\r' --exclude-dir=".git" .; then
+            echo "Error: Windows CRLF line endings found above."
+            exit 1
+          fi
+
+          # Ensure no trailing spaces or tabs
+          if grep -rIn '[[:blank:]]\+$' --exclude-dir=".git" .; then
+            echo "Error: trailing whitespace found above."
+            exit 1
+          fi
