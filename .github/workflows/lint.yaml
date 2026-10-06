@@ -70,3 +70,9 @@ jobs:
             echo "Error: Windows CRLF line endings found above."
             exit 1
           fi
+
+          # Ensure no trailing spaces or tabs
+          if grep -rIn '[[:blank:]]\+$' --exclude-dir=".git" .; then
+            echo "Error: trailing whitespace found above."
+            exit 1
+          fi
