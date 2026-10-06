@@ -118,6 +118,7 @@ parts:
       - ca-certificates
       - libatomic1
       - bpftool
+      - rsync
     build-attributes: [enable-patchelf]
     stage:
       - -usr/share
