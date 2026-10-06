@@ -1,0 +1,11 @@
+#!/bin/bash
+# Runs once, on first install.
+set -eu
+
+mkdir -p "$SNAP_COMMON/etcd/data"
+mkdir -p "$SNAP_COMMON/cilium/state"
+mkdir -p "$SNAP_COMMON/cilium/lib"
+
+# Seed the effective config so the daemons have something to source before
+# the user ever runs `snap set`.
+cp "$SNAP/etc/defaults.env" "$SNAP_DATA/config.env"

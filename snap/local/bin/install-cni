@@ -1,0 +1,42 @@
+#!/bin/bash
+# Install the Cilium CNI plugin and the reference CNI plugins onto the host.
+#
+# In Kubernetes this is done by the install-cni-binaries init container
+# (install/kubernetes/cilium/templates/cilium-agent/daemonset.yaml:804) and the
+# agent writes the conflist itself via --write-cni-conf-when-ready. There is no
+# kubelet here and CNI config management is off, so both steps are done here.
+#
+# cilium-cni alone is not enough: a CNI runtime needs `loopback` to configure
+# lo inside the container netns. Cilium ships loopback in its own runtime image
+# for the same reason (images/runtime/build-cni.sh).
+set -eu
+
+CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
+CNI_CONF_DIR="${CNI_CONF_DIR:-/etc/cni/net.d}"
+
+mkdir -p "$CNI_BIN_DIR" "$CNI_CONF_DIR"
+
+for bin in "$SNAP"/opt/cni/bin/*; do
+  [ -f "$bin" ] || continue
+  install -m 0755 "$bin" "$CNI_BIN_DIR/$(basename "$bin")"
+  echo "installed $(basename "$bin") -> $CNI_BIN_DIR"
+done
+
+cat > "$CNI_CONF_DIR/05-cilium.conflist" <<EOF
+{
+  "cniVersion": "1.0.0",
+  "name": "cilium",
+  "plugins": [
+    {
+      "type": "cilium-cni",
+      "enable-debug": false
+    },
+    {
+      "type": "portmap",
+      "capabilities": { "portMappings": true }
+    }
+  ]
+}
+EOF
+
+echo "installed CNI config  -> $CNI_CONF_DIR/05-cilium.conflist"

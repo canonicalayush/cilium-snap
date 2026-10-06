@@ -1,0 +1,161 @@
+# Cilium, packaged to run standalone -- with no Kubernetes apiserver.
+#
+# Component pinning follows canonical/k8s-snap: each upstream project gets a
+# build-scripts/components/<name>/ directory holding `repository`, `version`
+# and `build.sh`, and build-component.sh clones and builds it.
+name: cilium-snap
+adopt-info: cilium
+summary: Cilium agent with bundled etcd, running without Kubernetes
+description: |
+  Cilium eBPF networking, observability and security, packaged to run on a
+  single host with no Kubernetes apiserver.
+
+  Kubernetes normally supplies Cilium with identity allocation
+  (CiliumIdentity CRDs), policy (CiliumNetworkPolicy CRDs) and load-balancer
+  state (Service/EndpointSlice). Without an apiserver, Cilium needs a kvstore
+  instead -- and this is not optional: with --kvstore unset, the agent
+  silently rewrites identity-allocation-mode to "crd" and then requires an
+  apiserver it does not have. This snap therefore bundles etcd.
+
+  The snap also ships clang and the eBPF C sources, because cilium-agent
+  compiles datapath templates at runtime rather than only loading prebuilt
+  ELFs.
+
+  Confinement is classic because cilium-agent mounts bpffs and cgroup2,
+  attaches tc/XDP programs, drives netlink and iptables, and writes the CNI
+  plugin and config to the host. snapd declined to support those mounts under
+  strict confinement (LP#2048506, filed by the Canonical K8s team for this
+  exact use case, resolved "Won't Fix").
+license: GPL-3.0
+grade: devel
+confinement: classic
+base: core24
+
+platforms:
+  amd64:
+  arm64:
+
+environment:
+  # usr/lib/llvm-18/bin is where the clang-18 deb keeps the real binaries; it
+  # must be on PATH because cilium-agent resolves `clang` by name at runtime.
+  PATH: $SNAP/usr/lib/llvm-18/bin:$SNAP/usr/bin:$SNAP/bin:$SNAP/usr/sbin:$SNAP/sbin:$PATH
+  # cilium-agent shells out to clang for datapath compilation
+  # (pkg/datapath/loader/compile.go:36) and to iptables/ipset
+  # (pkg/datapath/iptables/iptables.go:157, .../ipset/cell.go:48).
+  LD_LIBRARY_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR:$SNAP/usr/lib
+
+parts:
+  build-deps:
+    plugin: nil
+    build-snaps:
+      # Matches the Go in Cilium's own builder image
+      # (images/builder/Dockerfile GOLANG_IMAGE golang:1.27.1).
+      - go/1.27/stable
+    build-packages:
+      - build-essential
+      - git
+      - libelf-dev
+      - zlib1g-dev
+      - pkg-config
+      - rsync
+    build-attributes: [enable-patchelf]
+
+  cilium:
+    after: [build-deps]
+    plugin: nil
+    source: build-scripts
+    build-attributes: [enable-patchelf]
+    override-build: |
+      $CRAFT_PROJECT_DIR/build-scripts/build-component.sh cilium
+      # Snap version strings are capped at 32 characters, so abbreviate the
+      # pinned SHA here. The full 40-char ref stays in components/cilium/version,
+      # which is what the build actually fetches.
+      craftctl set version="$(cat $CRAFT_PART_BUILD/cilium/VERSION)+git.$(cut -c1-12 $CRAFT_PROJECT_DIR/build-scripts/components/cilium/version)"
+
+  etcd:
+    after: [build-deps]
+    plugin: nil
+    source: build-scripts
+    build-attributes: [enable-patchelf]
+    override-build: $CRAFT_PROJECT_DIR/build-scripts/build-component.sh etcd
+
+  cni-plugins:
+    after: [build-deps]
+    plugin: nil
+    source: build-scripts
+    build-attributes: [enable-patchelf]
+    override-build: $CRAFT_PROJECT_DIR/build-scripts/build-component.sh cni-plugins
+
+  llvm:
+    # cilium-agent invokes `clang` at runtime to build datapath templates, so
+    # the compiler is a *runtime* dependency, not just a build one.
+    # Upstream pins LLVM 21.1.8 (images/runtime/Dockerfile:9); core24 ships
+    # clang-18. No minimum version is enforced in code -- compileDatapath only
+    # logs `clang --version` (pkg/datapath/loader/compile.go:261-269) -- so
+    # clang-18 is the first thing to suspect if datapath compilation fails.
+    plugin: nil
+    stage-packages:
+      - clang-18
+      - llvm-18
+    build-attributes: [enable-patchelf]
+    # Deliberately no `organize:` here. Renaming the real clang binary into
+    # usr/bin collides with the symlink farm the deb already ships there and
+    # produces a `clang -> clang` self-loop. The binaries are left where the
+    # package puts them (usr/lib/llvm-18/bin) and the agent wrapper puts that
+    # directory on PATH instead.
+
+  runtime-deps:
+    # Mirrors Cilium's own runtime image package list
+    # (images/runtime/install-runtime-deps.sh:11-21).
+    plugin: nil
+    stage-packages:
+      - iproute2
+      - iptables
+      - ipset
+      - kmod
+      - ca-certificates
+      - libatomic1
+      - bpftool
+    build-attributes: [enable-patchelf]
+    stage:
+      - -usr/share
+      - -etc/bash_completion.d
+
+  wrappers:
+    plugin: dump
+    source: snap/local
+
+apps:
+  etcd:
+    command: bin/etcd-wrapper
+    daemon: simple
+    install-mode: enable
+    restart-condition: always
+    before: [cilium-agent]
+
+  cilium-agent:
+    command: bin/cilium-agent-wrapper
+    daemon: simple
+    install-mode: enable
+    restart-condition: on-failure
+    # systemd ordering only: this guarantees etcd is *started* first, not that
+    # it is *ready*. The wrapper polls 2379 to close that gap.
+    after: [etcd]
+
+  # `cilium-dbg` is the in-container debug CLI; upstream symlinks it to
+  # `cilium`, but that name is left free here to avoid colliding with the
+  # cilium-cli snap.
+  cilium-dbg:
+    command: usr/bin/cilium-dbg
+
+  etcdctl:
+    command: usr/bin/etcdctl
+
+  hubble:
+    command: usr/bin/hubble
+
+  # One-shot: copies the CNI plugin and config onto the host, the job the
+  # install-cni-binaries init container does in the DaemonSet
+  # (install/kubernetes/cilium/templates/cilium-agent/daemonset.yaml:804).
+  install-cni:
+    command: bin/install-cni

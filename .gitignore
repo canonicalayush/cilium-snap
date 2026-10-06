@@ -1,0 +1,19 @@
+# Snapcraft build artifacts and packages
+*.snap
+*.charm
+parts/
+prime/
+stage/
+.snapcraft/
+
+# Editor / backup temporary files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+.fuse_hidden*
+
+# Environment and secrets
+.env
+.env.*
