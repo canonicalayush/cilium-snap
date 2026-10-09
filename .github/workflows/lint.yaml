@@ -16,7 +16,8 @@ jobs:
       - name: Validate bash syntax (bash -n)
         run: |
           find . -type f \
-            \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" -o -name "install-cni" \) \
+            \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" \
+               -o -name "install-cni" -o -name "setup-etcd" \) \
             -not -path "*/.*" -exec bash -n {} +
 
       - name: Run ShellCheck

@@ -5,7 +5,7 @@
 # and `build.sh`, and build-component.sh clones and builds it.
 name: cilium-snap
 adopt-info: cilium
-summary: Cilium agent with bundled etcd, running without Kubernetes
+summary: Cilium agent using an external etcd snap, running without Kubernetes
 description: |
   Cilium eBPF networking, observability and security, packaged to run on a
   single host with no Kubernetes apiserver.
@@ -15,7 +15,9 @@ description: |
   state (Service/EndpointSlice). Without an apiserver, Cilium needs a kvstore
   instead -- and this is not optional: with --kvstore unset, the agent
   silently rewrites identity-allocation-mode to "crd" and then requires an
-  apiserver it does not have. This snap therefore bundles etcd.
+  apiserver it does not have. This snap therefore requires cilium-agent's
+  kvstore to be the separately-installed `etcd` snap, configured via
+  `cilium-snap.setup-etcd` (see README.md).
 
   The snap also ships clang and the eBPF C sources, because cilium-agent
   compiles datapath templates at runtime rather than only loading prebuilt
@@ -74,13 +76,6 @@ parts:
       CILIUM_GIT_REV="$(cut -c1-12 "$CRAFT_PROJECT_DIR/build-scripts/components/cilium/version")"
       craftctl set version="${CILIUM_VERSION}+git.${CILIUM_GIT_REV}"
 
-  etcd:
-    after: [build-deps]
-    plugin: nil
-    source: build-scripts
-    build-attributes: [enable-patchelf]
-    override-build: $CRAFT_PROJECT_DIR/build-scripts/build-component.sh etcd
-
   cni-plugins:
     after: [build-deps]
     plugin: nil
@@ -129,30 +124,17 @@ parts:
     source: snap/local
 
 apps:
-  etcd:
-    command: bin/etcd-wrapper
-    daemon: simple
-    install-mode: enable
-    restart-condition: always
-    before: [cilium-agent]
-
   cilium-agent:
     command: bin/cilium-agent-wrapper
     daemon: simple
     install-mode: enable
     restart-condition: on-failure
-    # systemd ordering only: this guarantees etcd is *started* first, not that
-    # it is *ready*. The wrapper polls 2379 to close that gap.
-    after: [etcd]
 
   # `cilium-dbg` is the in-container debug CLI; upstream symlinks it to
   # `cilium`, but that name is left free here to avoid colliding with the
   # cilium-cli snap.
   cilium-dbg:
     command: usr/bin/cilium-dbg
-
-  etcdctl:
-    command: usr/bin/etcdctl
 
   hubble:
     command: usr/bin/hubble
@@ -162,3 +144,9 @@ apps:
   # (install/kubernetes/cilium/templates/cilium-agent/daemonset.yaml:804).
   install-cni:
     command: bin/install-cni
+
+  # One-shot: writes /var/snap/etcd/common/etcd.conf.yml for the external
+  # `etcd` snap and starts it. Only needs to run on the host serving etcd,
+  # not on every agent host.
+  setup-etcd:
+    command: bin/setup-etcd
