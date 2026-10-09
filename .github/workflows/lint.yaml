@@ -24,7 +24,11 @@ jobs:
         with:
           scandir: '.'
         env:
-          SHELLCHECK_OPTS: -e SC1090,SC1091
+          # SC1090/1091: dynamic `source` (snap hooks sourcing config.env, the
+          # smoke suite sourcing its lib/case files) is intentional.
+          # SC2034: constants in tests/smoke/lib/snap.sh are consumed by the
+          # case files that source it; shellcheck only sees one file at a time.
+          SHELLCHECK_OPTS: -e SC1090,SC1091,SC2034
 
   yaml-lint:
     name: YAML lint (yamllint)
