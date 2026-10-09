@@ -134,6 +134,7 @@ apps:
     daemon: simple
     install-mode: enable
     restart-condition: always
+    restart-delay: 5s
     before: [cilium-agent]
 
   cilium-agent:
@@ -141,6 +142,9 @@ apps:
     daemon: simple
     install-mode: enable
     restart-condition: on-failure
+    # systemd permits 5 starts/10s; without this delay a bad flag burns that
+    # budget before `snap set` can recover the agent.
+    restart-delay: 5s
     # systemd ordering only: this guarantees etcd is *started* first, not that
     # it is *ready*. The wrapper polls 2379 to close that gap.
     after: [etcd]
