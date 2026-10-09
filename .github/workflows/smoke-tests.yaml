@@ -1,0 +1,80 @@
+name: Smoke tests
+
+"on":
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build snap
+    runs-on: ubuntu-24.04
+    outputs:
+      artifact: ${{ steps.build.outputs.artifact }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up LXD
+        uses: canonical/setup-lxd@v0.1.3
+
+      - name: Install snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Build the snap
+        id: build
+        run: |
+          sudo --user "$USER" --preserve-env --preserve-env=PATH -- \
+            env -- snapcraft --use-lxd
+          artifact="$(ls cilium-snap_*.snap | head -1)"
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the snap
+        uses: actions/upload-artifact@v4
+        with:
+          name: cilium-snap
+          path: ${{ steps.build.outputs.artifact }}
+          retention-days: 7
+
+  smoke:
+    name: Smoke tests
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Download the snap
+        uses: actions/download-artifact@v4
+        with:
+          name: cilium-snap
+
+      - name: Install test prerequisites
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq iproute2 iputils-ping
+
+      - name: Free the kvstore port
+        # The runner image may ship an etcd that would claim 127.0.0.1:2379.
+        run: sudo snap stop --disable etcd || true
+
+      - name: Run the smoke suite
+        run: |
+          sudo tests/smoke/run.sh --snap "$(ls cilium-snap_*.snap | head -1)"
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          echo "::group::snap services"
+          snap services cilium-snap || true
+          echo "::endgroup::"
+          echo "::group::cilium status"
+          sudo cilium-snap.cilium-dbg status --all-controllers || true
+          echo "::endgroup::"
+          echo "::group::agent log"
+          sudo journalctl -u snap.cilium-snap.cilium-agent.service --no-pager -n 400 || true
+          echo "::endgroup::"
+          echo "::group::etcd log"
+          sudo journalctl -u snap.cilium-snap.etcd.service --no-pager -n 200 || true
+          echo "::endgroup::"
