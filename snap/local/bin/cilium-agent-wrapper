@@ -33,8 +33,10 @@ mountpoint -q "$CGROUP_ROOT" || mount -t cgroup2 none "$CGROUP_ROOT"
 rsync -a --delete "$SNAP/var/lib/cilium/bpf/" "$LIB_DIR/bpf/"
 
 # --- wait for the kvstore ----------------------------------------------
-# `after: [etcd]` is start-ordering only: systemd considers a simple service
-# started the instant it forks, which is seconds before etcd binds 2379.
+# etcd now runs as its own separately-installed snap, started independently
+# of cilium-agent (see cilium-snap.setup-etcd), so there is no systemd
+# ordering to rely on here. Poll until it is actually serving before
+# building --kvstore-opt below.
 ETCD_HOST="$(echo "$ETCD_LISTEN_URL" | sed -E 's#^https?://##; s#:.*##')"
 ETCD_PORT="$(echo "$ETCD_LISTEN_URL" | sed -E 's#.*:##')"
 for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
@@ -115,15 +117,24 @@ set -- \
   --cgroup-root="$CGROUP_ROOT" \
   --state-dir="$STATE_DIR" \
   --lib-dir="$LIB_DIR" \
-  --debug="$DEBUG"
+  --debug="$DEBUG" \
+  --cluster-name="$CLUSTER_NAME" \
+  --cluster-id="$CLUSTER_ID" \
+  --auto-direct-node-routes="$ENABLE_AUTO_DIRECT_NODE_ROUTES"
 
 [ -n "$IPV4_RANGE" ] && set -- "$@" --ipv4-range="$IPV4_RANGE"
 [ -n "$EGRESS_INTERFACE" ] && set -- "$@" --egress-masquerade-interfaces="$EGRESS_INTERFACE"
 
-# Deliberately NOT setting K8S_NODE_NAME: with it empty and no PodCIDR
-# required, WaitForNodeInformation returns immediately
-# (local_node_sync_wait.go:85-91) instead of waiting out its 10s timeout.
-unset K8S_NODE_NAME
+# Node name resolution (pkg/node/types/nodename.go init()) reads
+# K8S_NODE_NAME unconditionally, before any Kubernetes-enablement check, so
+# setting it here is independent of --enable-k8s=false. Falling back to
+# the hostname (K8S_NODE_NAME unset) is fine for a single node; multiple
+# agents sharing one etcd instance need distinct names.
+if [ -n "$NODE_NAME" ]; then
+  export K8S_NODE_NAME="$NODE_NAME"
+else
+  unset K8S_NODE_NAME
+fi
 
 # shellcheck disable=SC2086
 exec "$SNAP/usr/bin/cilium-agent" "$@" $EXTRA_ARGS
