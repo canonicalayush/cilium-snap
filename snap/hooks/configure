@@ -58,6 +58,7 @@ if [ -f "$CONFIG" ] && cmp -s "$RENDERED" "$CONFIG"; then
   exit 0
 fi
 
+chmod 0644 "$RENDERED"
 mv "$RENDERED" "$CONFIG"
 
 # Only restart if the services already exist; on first install the configure
