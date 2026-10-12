@@ -2,7 +2,6 @@
 # Runs once, on first install.
 set -eu
 
-mkdir -p "$SNAP_COMMON/etcd/data"
 mkdir -p "$SNAP_COMMON/cilium/state"
 mkdir -p "$SNAP_COMMON/cilium/lib"
 
