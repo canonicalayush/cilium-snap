@@ -18,10 +18,10 @@ jobs:
           find . -type f \
             \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" \
                -o -name "install-cni" -o -name "setup-etcd" \) \
-            -not -path "*/.*" -exec bash -n {} +
+            -not -path "*/.*" -print0 | xargs -0 -r -n1 bash -n
 
       - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@master
+        uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: '.'
         env:
@@ -44,10 +44,10 @@ jobs:
 
       - name: Run yamllint
         run: |
-          yamllint -c .yamllint.yaml snap/snapcraft.yaml .github/
+          yamllint -c .yamllint.yaml .
 
   formatting-and-spelling:
-    name: Markdown & Codespell
+    name: Formatting & Codespell
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -61,7 +61,7 @@ jobs:
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          skip: ".git,.github"
+          skip: "./.git"
           check_filenames: true
 
       - name: Check line endings and trailing whitespace
