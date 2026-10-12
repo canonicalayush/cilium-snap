@@ -31,6 +31,26 @@ if [ -f "$ETCD_CONF" ] && [ "$FORCE" -ne 1 ]; then
   exit 1
 fi
 
+# etcd.conf.yml below carries no TLS and no authentication: this is a
+# plaintext, unauthenticated kvstore holding Cilium's identity and policy
+# state. Loopback-only is safe by construction (nothing off-host can reach
+# it); anything else needs the port restricted before it's started.
+ETCD_BIND_HOST="${ETCD_BIND_ADDRESS%:*}"
+ETCD_BIND_PORT="${ETCD_BIND_ADDRESS##*:}"
+case "$ETCD_BIND_HOST" in
+  127.0.0.1 | localhost) ;;
+  *)
+    cat >&2 <<WARNING
+WARNING: etcd-bind-address=$ETCD_BIND_ADDRESS is not loopback-only.
+etcd.conf.yml has no TLS or authentication, so anything that can reach
+port $ETCD_BIND_PORT on this host can read and write Cilium's full
+identity and policy state. Restrict access before continuing, e.g.:
+  sudo iptables -A INPUT -p tcp --dport $ETCD_BIND_PORT -s <agent-host-cidr> -j ACCEPT
+  sudo iptables -A INPUT -p tcp --dport $ETCD_BIND_PORT -j DROP
+WARNING
+    ;;
+esac
+
 mkdir -p "$ETCD_DATA_DIR"
 
 cat > "$ETCD_CONF" <<YAML
