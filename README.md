@@ -59,7 +59,7 @@ Keys relevant to the external etcd kvstore and multi-agent setups:
 - `etcd-listen-url` (default `http://127.0.0.1:2379`): where `cilium-agent` looks for etcd. Point this at the etcd host's address when etcd runs elsewhere.
 - `cluster-name` / `cluster-id` (defaults `default` / `0`): namespace this agent's kvstore state when multiple independent agent groups share one etcd instance.
 - `node-name` (default: the host's hostname): the name this agent registers itself under in the kvstore. Every node sharing one etcd instance under the same `cluster-name` needs a distinct `node-name`.
-- `enable-auto-direct-node-routes` (default `false`): installs L2 routes between node PodCIDRs without an overlay. Required for cross-host pod connectivity when multiple agents share one etcd.
+- `enable-auto-direct-node-routes` (default `false`): installs direct routes between node PodCIDRs without an overlay. Enable it for cross-host pod connectivity when the agent hosts share a common L2 segment -- Cilium installs a direct route only for nodes reachable in the same broadcast domain. Hosts separated by an L3/routed boundary need the pod CIDRs distributed another way (static routes, a BGP daemon, or an encapsulating routing mode) instead.
 
 ### Running multiple agents against one etcd instance
 
@@ -80,6 +80,8 @@ On every other host, point at that etcd and give each node its own name and non-
 ```bash
 sudo snap set cilium-snap etcd-listen-url=http://<etcd-host-ip>:2379 node-name=host-b ipv4-range=10.20.2.0/24 enable-auto-direct-node-routes=true
 ```
+
+The `enable-auto-direct-node-routes=true` in the commands above assumes `host-a` and `host-b` share a common L2 segment; Cilium installs a direct route to a node's PodCIDR only when that node is reachable in the same broadcast domain. If the agent hosts are separated by an L3/routed boundary, leave the setting off and distribute the pod CIDRs another way -- static routes on the intervening routers, a BGP daemon, or an encapsulating routing mode.
 
 All nodes sharing one etcd instance must use the same `cluster-name` (the `default` default is fine as long as every node uses it).
 
