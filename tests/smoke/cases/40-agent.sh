@@ -34,15 +34,6 @@ test_identity_allocation_via_kvstore() {
   assert_ne "null" "$range_min" "agent exposes a global identity range minimum"
   [ "$range_max" -gt "$range_min" ] || fail "identity range is empty: $range_min..$range_max"
   log "ok: global identity range $range_min..$range_max"
-
-  # The range above is reported under crd mode too; only identities actually
-  # landing in etcd distinguish kvstore allocation from the CRD-backed mode
-  # this snap must never fall back to (see snap/snapcraft.yaml).
-  local identity_keys
-  identity_keys="$("$ETCDCTL" get cilium/state/identities/ --prefix --keys-only 2>&1)" \
-    || fail "failed to read cilium identities from etcd: $identity_keys"
-  assert_contains "$identity_keys" "cilium/state/identities/v1/" \
-    "identities are allocated in the kvstore, not as CRDs"
 }
 
 test_controllers_healthy() {

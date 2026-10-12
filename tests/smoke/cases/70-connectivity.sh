@@ -89,6 +89,24 @@ test_pod_to_pod_connectivity() {
     ip netns exec "$SMOKE_NS_B" ping -c 2 -W 2 "$ip_a"
 }
 
+test_identity_allocated_in_kvstore() {
+  # --identity-allocation-mode=kvstore is what replaces CiliumIdentity CRDs.
+  # Reserved identities (host, world, ...) are fixed well-known IDs that are
+  # never written to etcd, so this needs a real workload attached first --
+  # checking before any CNI ADD would find the prefix empty regardless of
+  # allocation mode (see snap/snapcraft.yaml for why crd mode is a bug here).
+  trap 'smoke_teardown_netns "$SMOKE_NETCONF"' EXIT
+  write_netconf
+  attach_namespace "$SMOKE_NS_A" "app=smoke-kvstore-identity" >/dev/null \
+    || fail "could not attach $SMOKE_NS_A"
+
+  local identity_keys
+  identity_keys="$("$ETCDCTL" get cilium/state/identities/ --prefix --keys-only 2>&1)" \
+    || fail "failed to read cilium identities from etcd: $identity_keys"
+  assert_contains "$identity_keys" "cilium/state/identities/v1/" \
+    "identities are allocated in the kvstore, not as CRDs"
+}
+
 test_pod_to_host_connectivity() {
   trap 'smoke_teardown_netns "$SMOKE_NETCONF"' EXIT
   write_netconf
