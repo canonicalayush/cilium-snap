@@ -6,7 +6,7 @@ Bash smoke suite that validates an installed `cilium-snap` end to end: packaging
 The suite needs root, a real kernel, and a free `127.0.0.1:2379`. It never builds anything -- point it at an installed snap or hand it a `.snap` file.
 
 ## Responsibilities
-- `run.sh`: Orchestrator. Discovers `test_*` functions in `cases/`, runs each in its own subshell, prints a summary and exits non-zero on failure. Options: `--snap <file>` (install first), `--filter <pattern>`, `--list`, `--remove`.
+- `run.sh`: Orchestrator. Discovers `test_*` functions in `cases/`, runs each in its own subshell, prints a summary and exits non-zero on failure. Options: `--snap <file>` (install first), `--filter <pattern>`, `--list`, `--remove`, `--reset-etcd` (opt in to overwriting a pre-existing, non-cilium-snap etcd config).
 - `run-multipass.sh`: Provisions or reuses a Multipass VM, copies the suite and the snap in, and runs `run.sh` there. The on-prem entry point.
 - `lib/harness.sh`: Assertions (`assert_eq`, `assert_contains`, `assert_matches`, `assert_mountpoint`, `retry_until`, ...), case registration and result reporting. `fail` aborts a case; `skip` marks it skipped.
 - `lib/snap.sh`: Snap-specific helpers -- effective config lookup (`snap_config`), `cilium-dbg` JSON accessors, CNI invocation, endpoint identity resolution and namespace teardown.

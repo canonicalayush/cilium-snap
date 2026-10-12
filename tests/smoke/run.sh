@@ -8,6 +8,7 @@
 #   sudo tests/smoke/run.sh --snap ./cilium-snap_*.snap
 #   sudo tests/smoke/run.sh --filter connectivity
 #   sudo tests/smoke/run.sh --list
+#   sudo tests/smoke/run.sh --reset-etcd
 #
 # Exit status is non-zero if any case fails.
 set -uo pipefail
@@ -19,9 +20,10 @@ SNAP_FILE=""
 FILTER=""
 LIST_ONLY=0
 KEEP_INSTALL=1
+RESET_ETCD=0
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -31,6 +33,7 @@ while [ $# -gt 0 ]; do
     --filter)  FILTER="${2:?--filter needs a pattern}"; shift 2 ;;
     --list)    LIST_ONLY=1; shift ;;
     --remove)  KEEP_INSTALL=0; shift ;;
+    --reset-etcd) RESET_ETCD=1; shift ;;
     -h|--help) usage 0 ;;
     *) printf 'unknown argument: %s\n\n' "$1" >&2; usage 1 ;;
   esac
@@ -58,15 +61,30 @@ require_tools() {
 
 ensure_etcd_configured() {
   # cilium-agent's kvstore is now the separately-installed `etcd` snap, not
-  # bundled into cilium-snap: install it if missing, then (re)configure and
-  # start it unconditionally so a reused host's stale etcd.conf.yml can't
-  # leave the agent pointed at a dead kvstore.
+  # bundled into cilium-snap: install it if missing. A reused host's own
+  # etcd.conf.yml is never overwritten implicitly -- that would disrupt any
+  # unrelated etcd clients sharing the snap. Replace it without asking only
+  # when it's a prior render of this same suite (identified by its header
+  # comment); any other pre-existing config needs --reset-etcd.
   if ! snap list etcd >/dev/null 2>&1; then
     info "installing the etcd snap"
     snap install etcd || { printf 'failed to install the etcd snap\n' >&2; exit 2; }
   fi
+
+  local etcd_conf="/var/snap/etcd/common/etcd.conf.yml" force_args=()
+  if [ -f "$etcd_conf" ]; then
+    if grep -q '^# Rendered by cilium-snap.setup-etcd' "$etcd_conf" 2>/dev/null \
+       || [ "$RESET_ETCD" -eq 1 ]; then
+      force_args=(--force)
+    else
+      printf 'refusing to overwrite pre-existing etcd configuration at %s\n' "$etcd_conf" >&2
+      printf '(not written by cilium-snap.setup-etcd). Pass --reset-etcd to replace it.\n' >&2
+      exit 2
+    fi
+  fi
+
   info "configuring etcd via ${SNAP_NAME}.setup-etcd"
-  "${SNAP_NAME}.setup-etcd" --force \
+  "${SNAP_NAME}.setup-etcd" "${force_args[@]}" \
     || { printf '%s.setup-etcd failed\n' "$SNAP_NAME" >&2; exit 2; }
 }
 
