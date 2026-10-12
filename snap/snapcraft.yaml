@@ -103,14 +103,16 @@ parts:
 
   runtime-deps:
     # Mirrors Cilium's own runtime image package list
-    # (images/runtime/install-runtime-deps.sh:11-21).
+    # (images/runtime/install-runtime-deps.sh:11-21), minus ca-certificates:
+    # that list is for a container with no host filesystem of its own: this
+    # snap is classic-confined, so cilium-agent sees the host's real
+    # /etc/ssl/certs directly and needs no bundled trust store.
     plugin: nil
     stage-packages:
       - iproute2
       - iptables
       - ipset
       - kmod
-      - ca-certificates
       - libatomic1
       - bpftool
       - rsync
@@ -122,6 +124,12 @@ parts:
   wrappers:
     plugin: dump
     source: snap/local
+    # snap/local/**/AGENTS.md are repo-internal docs for coding agents, not
+    # runtime payload.
+    stage:
+      - -AGENTS.md
+      - -bin/AGENTS.md
+      - -etc/AGENTS.md
 
 apps:
   cilium-agent:
