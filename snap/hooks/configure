@@ -55,11 +55,11 @@ trap 'rm -f "$RENDERED"' EXIT
 # systemd rate-limits restarts (StartLimitBurst=5/10s, not exposed by snapd);
 # only restart when the rendered config actually changed.
 if [ -f "$CONFIG" ] && cmp -s "$RENDERED" "$CONFIG"; then
-  chmod 0644 "$CONFIG" 2>/dev/null || true
+  chmod 0600 "$CONFIG" 2>/dev/null || true
   exit 0
 fi
 
-chmod 0644 "$RENDERED"
+chmod 0600 "$RENDERED"
 mv "$RENDERED" "$CONFIG"
 
 # Only restart if the services already exist; on first install the configure
