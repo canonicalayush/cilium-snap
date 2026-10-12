@@ -63,8 +63,7 @@ mv "$RENDERED" "$CONFIG"
 # Only restart if the services already exist; on first install the configure
 # hook runs before they are started.
 if snapctl services cilium-snap.cilium-agent >/dev/null 2>&1; then
-  # Clears start-limit-hit before restarting; snapctl restart cannot recover
-  # from it on its own.
+  # Clears start-limit-hit; snapctl restart alone can't recover from it.
   systemctl reset-failed snap.cilium-snap.cilium-agent.service >/dev/null 2>&1 || true
   snapctl restart cilium-snap.cilium-agent || true
 fi
