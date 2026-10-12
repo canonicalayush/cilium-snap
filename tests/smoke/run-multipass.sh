@@ -50,7 +50,7 @@ if [ "$CREATE" -eq 1 ]; then
   else
     printf 'launching %s\n' "$VM_NAME"
     # Building is done outside; these are sized for running the agent, the
-    # bundled etcd and a handful of network namespaces.
+    # external etcd snap and a handful of network namespaces.
     multipass launch 24.04 --name "$VM_NAME" --cpus 4 --memory 8G --disk 20G
   fi
 fi
@@ -73,9 +73,6 @@ trap cleanup EXIT
 printf 'installing test prerequisites in %s\n' "$VM_NAME"
 multipass exec "$VM_NAME" -- sudo apt-get update -qq
 multipass exec "$VM_NAME" -- sudo apt-get install -y -qq jq iproute2 iputils-ping
-
-# The distro etcd snap would claim 127.0.0.1:2379 before ours does.
-multipass exec "$VM_NAME" -- sudo snap stop --disable etcd >/dev/null 2>&1 || true
 
 printf 'copying the suite to %s:%s\n' "$VM_NAME" "$REMOTE_DIR"
 multipass exec "$VM_NAME" -- rm -rf "$REMOTE_DIR"

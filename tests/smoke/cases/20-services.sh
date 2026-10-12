@@ -1,15 +1,17 @@
 #!/bin/bash
-# Services: both daemons are enabled, active, and the install hook laid out
-# the state directories the wrappers expect.
+# Services: cilium-agent is enabled and active, the external etcd snap it
+# depends on is enabled and active, and the install hook laid out the state
+# directories the wrapper expects.
 
 test_services_enabled_and_active() {
   local out
   out="$(snap services "$SNAP_NAME" 2>&1)" || fail "snap services failed: $out"
-
   assert_matches "$out" "${AGENT_SERVICE}[[:space:]]+enabled[[:space:]]+active" \
     "cilium-agent service is enabled and active"
+
+  out="$(snap services etcd 2>&1)" || fail "snap services etcd failed: $out"
   assert_matches "$out" "${ETCD_SERVICE}[[:space:]]+enabled[[:space:]]+active" \
-    "etcd service is enabled and active"
+    "the external etcd service is enabled and active"
 }
 
 test_systemd_units_healthy() {
@@ -28,19 +30,9 @@ test_systemd_units_healthy() {
   done
 }
 
-test_start_ordering() {
-  # snapcraft.yaml orders etcd before cilium-agent; without it the agent
-  # races the kvstore and only the wrapper's TCP poll saves it.
-  local after
-  after="$(systemctl show "snap.${AGENT_SERVICE}.service" -p After --value)"
-  assert_contains "$after" "snap.${ETCD_SERVICE}.service" \
-    "cilium-agent is ordered after etcd"
-}
-
 test_state_directories_created() {
-  # Created by the install hook; the wrappers mkdir them too, but a missing
+  # Created by the install hook; the wrapper mkdirs them too, but a missing
   # hook would silently change ownership semantics on refresh.
-  assert_dir "${SNAP_COMMON}/etcd/data" "etcd data directory"
   assert_dir "${SNAP_COMMON}/cilium/state" "cilium state directory"
   assert_dir "${SNAP_COMMON}/cilium/lib" "cilium lib directory"
 }

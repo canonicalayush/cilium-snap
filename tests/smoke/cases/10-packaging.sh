@@ -13,8 +13,8 @@ test_snap_installed() {
 }
 
 test_snap_apps_present() {
-  # snapcraft.yaml declares six apps: two daemons and four commands.
-  local expected="cilium-agent cilium-dbg etcd etcdctl hubble install-cni"
+  # snapcraft.yaml declares five apps: one daemon and four commands.
+  local expected="cilium-agent cilium-dbg hubble install-cni setup-etcd"
   local app
   for app in $expected; do
     if [ -x "/snap/bin/${SNAP_NAME}.${app}" ] || snap services "${SNAP_NAME}.${app}" >/dev/null 2>&1; then
@@ -33,9 +33,6 @@ test_client_binaries_run() {
   out="$("$CILIUM_DBG" version 2>&1)" || fail "cilium-dbg version failed: $out"
   assert_matches "$out" "^Client: [0-9]+\.[0-9]+" "cilium-dbg reports a client version"
   assert_contains "$out" "Daemon:" "cilium-dbg reaches the agent API"
-
-  out="$("$ETCDCTL" version 2>&1)" || fail "etcdctl version failed: $out"
-  assert_matches "$out" "etcdctl version: [0-9]+\.[0-9]+\.[0-9]+" "etcdctl reports a version"
 
   out="$("$HUBBLE" version 2>&1)" || fail "hubble version failed: $out"
   assert_matches "$out" "hubble v?[0-9]+\.[0-9]+" "hubble reports a version"

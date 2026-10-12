@@ -84,16 +84,17 @@ test_etcd_restart_recovers() {
 
 test_full_snap_restart_recovers() {
   snap restart "$SNAP_NAME" >/dev/null || fail "snap restart failed"
-
-  retry_until 120 "etcd is healthy after a full restart" "$ETCDCTL" endpoint health
   wait_agent_ok 180
 
   local out
   out="$(snap services "$SNAP_NAME")"
   assert_matches "$out" "${AGENT_SERVICE}[[:space:]]+enabled[[:space:]]+active" \
     "cilium-agent is active after a full restart"
-  assert_matches "$out" "${ETCD_SERVICE}[[:space:]]+enabled[[:space:]]+active" \
-    "etcd is active after a full restart"
+
+  # `snap restart cilium-snap` only restarts cilium-snap's own services; the
+  # external etcd snap is a separate snap and is untouched by it.
+  retry_until 10 "etcd is unaffected by a cilium-snap-only restart" \
+    "$ETCDCTL" endpoint health
 }
 
 test_datapath_reattached_after_restart() {

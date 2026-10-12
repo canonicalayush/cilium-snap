@@ -55,10 +55,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq jq iproute2 iputils-ping
 
-      - name: Free the kvstore port
-        # The runner image may ship an etcd that would claim 127.0.0.1:2379.
-        run: sudo snap stop --disable etcd || true
-
       - name: Run the smoke suite
         run: |
           sudo tests/smoke/run.sh --snap "$(ls cilium-snap_*.snap | head -1)"
@@ -68,6 +64,7 @@ jobs:
         run: |
           echo "::group::snap services"
           snap services cilium-snap || true
+          snap services etcd || true
           echo "::endgroup::"
           echo "::group::cilium status"
           sudo cilium-snap.cilium-dbg status --all-controllers || true
@@ -76,5 +73,5 @@ jobs:
           sudo journalctl -u snap.cilium-snap.cilium-agent.service --no-pager -n 400 || true
           echo "::endgroup::"
           echo "::group::etcd log"
-          sudo journalctl -u snap.cilium-snap.etcd.service --no-pager -n 200 || true
+          sudo journalctl -u snap.etcd.etcd.service --no-pager -n 200 || true
           echo "::endgroup::"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# etcd: the bundled kvstore is reachable, writable, and actually carries the
+# etcd: the external kvstore is reachable, writable, and actually carries the
 # Cilium state that makes standalone operation possible.
 
 ETCD_SMOKE_KEY="/cilium-snap-smoke/probe"
@@ -35,7 +35,8 @@ test_etcd_read_write_roundtrip() {
 }
 
 test_etcd_single_node_cluster() {
-  # The wrapper starts a single-node, loopback-only cluster named cilium-snap.
+  # cilium-snap.setup-etcd starts a single-node, loopback-only cluster
+  # named cilium-snap on the external etcd snap.
   local out
   out="$("$ETCDCTL" member list 2>&1)" || fail "etcd member list failed: $out"
   assert_contains "$out" "$SNAP_NAME" "etcd member is named after the snap"
@@ -46,8 +47,8 @@ test_etcd_single_node_cluster() {
 }
 
 test_etcd_holds_cilium_node_state() {
-  # This is the whole reason etcd is bundled: with --kvstore unset the agent
-  # rewrites identity-allocation-mode to crd and needs an apiserver.
+  # This is the whole reason etcd is required: with --kvstore unset the
+  # agent rewrites identity-allocation-mode to crd and needs an apiserver.
   local keys
   keys="$("$ETCDCTL" get cilium/state/nodes/ --prefix --keys-only 2>&1)" \
     || fail "failed to read cilium node state from etcd: $keys"

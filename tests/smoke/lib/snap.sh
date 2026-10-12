@@ -9,12 +9,12 @@ SNAP_COMMON="/var/snap/${SNAP_NAME}/common"
 SNAP_DATA_DIR="/var/snap/${SNAP_NAME}/current"
 
 CILIUM_DBG="${SNAP_NAME}.cilium-dbg"
-ETCDCTL="${SNAP_NAME}.etcdctl"
+ETCDCTL="etcd.etcdctl"
 HUBBLE="${SNAP_NAME}.hubble"
 INSTALL_CNI="${SNAP_NAME}.install-cni"
 
 AGENT_SERVICE="${SNAP_NAME}.cilium-agent"
-ETCD_SERVICE="${SNAP_NAME}.etcd"
+ETCD_SERVICE="etcd.etcd"
 
 # Namespaces and container ids created by the connectivity case. Tracked here
 # so the top-level cleanup can tear them down even if a case aborts midway.

@@ -56,18 +56,28 @@ require_tools() {
   fi
 }
 
+ensure_etcd_configured() {
+  # cilium-agent's kvstore is now the separately-installed `etcd` snap, not
+  # bundled into cilium-snap: install it if missing, then (re)configure and
+  # start it unconditionally so a reused host's stale etcd.conf.yml can't
+  # leave the agent pointed at a dead kvstore.
+  if ! snap list etcd >/dev/null 2>&1; then
+    info "installing the etcd snap"
+    snap install etcd || { printf 'failed to install the etcd snap\n' >&2; exit 2; }
+  fi
+  info "configuring etcd via ${SNAP_NAME}.setup-etcd"
+  "${SNAP_NAME}.setup-etcd" --force \
+    || { printf '%s.setup-etcd failed\n' "$SNAP_NAME" >&2; exit 2; }
+}
+
 install_snap_file() {
   local file="$1"
   [ -f "$file" ] || { printf 'no such snap file: %s\n' "$file" >&2; exit 2; }
 
-  # The distro etcd snap claims 127.0.0.1:2379 and would collide with ours.
-  if snap list etcd >/dev/null 2>&1; then
-    warn "the distro 'etcd' snap is installed; disabling it to free 127.0.0.1:2379"
-    snap stop --disable etcd >/dev/null 2>&1 || true
-  fi
-
   info "installing $file"
   snap install --dangerous --classic "$file" || { printf 'snap install failed\n' >&2; exit 2; }
+
+  ensure_etcd_configured
 
   info "waiting for services to settle"
   retry_until 180 "agent reports state Ok after install" \

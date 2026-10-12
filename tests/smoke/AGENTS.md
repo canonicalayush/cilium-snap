@@ -14,7 +14,7 @@ The suite needs root, a real kernel, and a free `127.0.0.1:2379`. It never build
 
 ## Cases
 - `10-packaging.sh`: Snap installed and classic, every app present, client binaries run, pinned SHA matches the build, bundled clang executes.
-- `20-services.sh`: Both daemons enabled and active, start ordering, state directories, staged eBPF sources, no fatal logs.
+- `20-services.sh`: cilium-agent and the external etcd snap enabled and active, state directories, staged eBPF sources, no fatal logs.
 - `30-etcd.sh`: Endpoint health, read/write roundtrip, single-node cluster, Cilium node state persisted, agent connected with quorum.
 - `40-agent.sh`: Agent Ok, Kubernetes disabled, IPAM range, kvstore identity allocation, controller health, routing and masquerade configuration.
 - `50-datapath.sh`: bpffs and cgroup2 mounts, pinned BPF maps, runtime-compiled datapath objects, device attachment, iptables chains.

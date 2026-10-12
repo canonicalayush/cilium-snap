@@ -6,7 +6,7 @@ One file per concern, run in filename order. `run.sh` sources each file and runs
 ## Files
 - `10-packaging.sh`: Packaging and bundled binaries.
 - `20-services.sh`: Daemon units, ordering, state directories, logs.
-- `30-etcd.sh`: Bundled kvstore health, persistence and Cilium node state.
+- `30-etcd.sh`: External kvstore health, persistence and Cilium node state.
 - `40-agent.sh`: Standalone agent configuration and controller health.
 - `50-datapath.sh`: Mounts, pinned BPF maps, runtime datapath compilation and attachment.
 - `60-cni.sh`: `install-cni` output and the CNI plugin handshake.
