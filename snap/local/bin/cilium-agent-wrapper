@@ -28,8 +28,12 @@ rsync -a --delete "$SNAP/var/lib/cilium/bpf/" "$LIB_DIR/bpf/"
 # --- wait for the kvstore ----------------------------------------------
 # etcd is a separate snap with no systemd ordering guarantee; poll until
 # it is actually serving before building --kvstore-opt below.
-ETCD_HOST="$(echo "$ETCD_LISTEN_URL" | sed -E 's#^https?://##; s#:.*##')"
-ETCD_PORT="$(echo "$ETCD_LISTEN_URL" | sed -E 's#.*:##')"
+if ! [[ "$ETCD_LISTEN_URL" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]]; then
+  echo "etcd-listen-url must be of the form http(s)://<host>:<port>, got '$ETCD_LISTEN_URL'" >&2
+  exit 1
+fi
+ETCD_HOST="${BASH_REMATCH[1]//[\[\]]/}"
+ETCD_PORT="${BASH_REMATCH[2]}"
 for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
   if (exec 3<>"/dev/tcp/${ETCD_HOST}/${ETCD_PORT}") 2>/dev/null; then
     break
@@ -50,7 +54,10 @@ done
 # rules). Auto-detected from the default route; absence is non-fatal under
 # cluster-pool.
 if [ -z "$EGRESS_INTERFACE" ]; then
-  EGRESS_INTERFACE="$(ip -4 route show default | awk '{print $5; exit}')" || true
+  # Field-position parsing breaks on a gatewayless default route
+  # (`default dev wg0 scope link`, common for tun/VPN interfaces), where the
+  # interface is not fixed field 5. Scan for the `dev` keyword instead.
+  EGRESS_INTERFACE="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')" || true
 fi
 
 # delegated-plugin's dependent flags (harmless under cluster-pool, passed

@@ -1,6 +1,5 @@
 # Snapcraft build artifacts and packages
 *.snap
-*.charm
 parts/
 prime/
 stage/

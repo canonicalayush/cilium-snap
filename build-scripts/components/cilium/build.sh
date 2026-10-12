@@ -15,8 +15,15 @@
 
 INSTALL="${1}"
 
+set -eu
+
 export GOTOOLCHAIN=local
 export CGO_ENABLED=0
+# Snapcraft's `platforms:` shorthand currently builds each arch natively
+# (build-on == build-for), so `go env GOARCH` is already correct; this only
+# matters if a future build-on/build-for split cross-builds instead, same as
+# upstream's own Dockerfile (images/cilium/Dockerfile:44, GOARCH=${TARGETARCH}).
+export GOARCH="${CRAFT_ARCH_BUILD_FOR:-$(go env GOARCH)}"
 
 make \
   DESTDIR="${INSTALL}" \

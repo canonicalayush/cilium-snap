@@ -19,11 +19,14 @@
 INSTALL="${1}/opt/cni/bin"
 VERSION="${2}"
 
+set -eu
+
 mkdir -p "${INSTALL}"
 
 export GOTOOLCHAIN=local
 export CGO_ENABLED=0
-
+# See build-scripts/components/cilium/build.sh for why this is set.
+export GOARCH="${CRAFT_ARCH_BUILD_FOR:-$(go env GOARCH)}"
 LDFLAGS="-s -w -X github.com/containernetworking/plugins/pkg/utils/buildversion.BuildVersion=${VERSION}"
 
 for plugin in loopback portmap host-local; do
@@ -34,5 +37,3 @@ for plugin in loopback portmap host-local; do
   esac
   go build -o "${INSTALL}/${plugin}" -ldflags "${LDFLAGS}" "${src}"
 done
-
-ls -l "${INSTALL}"

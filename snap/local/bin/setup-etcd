@@ -61,6 +61,11 @@ advertise-client-urls: http://${ETCD_BIND_ADDRESS}
 listen-peer-urls: http://127.0.0.1:2380
 initial-advertise-peer-urls: http://127.0.0.1:2380
 initial-cluster: cilium-snap=http://127.0.0.1:2380
+# cilium-agent continuously refreshes heartbeat/lease keys, so mvcc history
+# grows without bound on an idle node; without compaction etcd eventually
+# hits its backend quota and goes permanently read-only.
+auto-compaction-mode: periodic
+auto-compaction-retention: "1h"
 YAML
 
 # `snap start` on an active service is a no-op and won't pick up a
