@@ -129,6 +129,9 @@ apps:
     daemon: simple
     install-mode: enable
     restart-condition: on-failure
+    # systemd permits 5 starts/10s; without this delay a bad flag burns that
+    # budget before `snap set` can recover the agent.
+    restart-delay: 5s
 
   # `cilium-dbg` is the in-container debug CLI; upstream symlinks it to
   # `cilium`, but that name is left free here to avoid colliding with the
