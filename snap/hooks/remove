@@ -1,0 +1,13 @@
+#!/bin/bash
+# Runs once, on removal. Undoes install-cni's host-side writes: snapd has no
+# notion that a one-shot app touched files outside $SNAP, so nothing else
+# cleans these up.
+set -eu
+
+CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
+CNI_CONF_DIR="${CNI_CONF_DIR:-/etc/cni/net.d}"
+
+rm -f "$CNI_CONF_DIR/05-cilium.conflist"
+for bin in cilium-cni loopback portmap host-local; do
+  rm -f "$CNI_BIN_DIR/$bin"
+done
