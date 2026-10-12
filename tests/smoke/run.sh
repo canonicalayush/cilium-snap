@@ -172,8 +172,10 @@ collect_cases() {
 declare -A CASE_FILES=()
 CASE_ORDER=()
 
-require_root
-require_tools
+if [ "$LIST_ONLY" -eq 0 ]; then
+  require_root
+  require_tools
+fi
 collect_cases
 
 if [ "${#CASE_ORDER[@]}" -eq 0 ]; then
