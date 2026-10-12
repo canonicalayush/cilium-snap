@@ -93,10 +93,11 @@ test_pod_to_host_connectivity() {
   trap 'smoke_teardown_netns "$SMOKE_NETCONF"' EXIT
   write_netconf
 
-  local ip_a host_ip
+  local ip_a host_ip egress_dev
   ip_a="$(attach_namespace "$SMOKE_NS_A" "app=smoke-a")" || fail "could not attach $SMOKE_NS_A"
-  host_ip="$(ip -4 -o addr show "$(ip -4 route show default | awk '{print $5; exit}')" \
-    | awk '{print $4}' | cut -d/ -f1 | head -1)"
+  egress_dev="$(ip -4 route show default | awk '{print $5; exit}')"
+  [ -n "$egress_dev" ] || skip "host has no default-route device"
+  host_ip="$(ip -4 -o addr show "$egress_dev" | awk '{print $4}' | cut -d/ -f1 | head -1)"
   [ -n "$host_ip" ] || skip "host has no routable IPv4 address"
 
   retry_until 30 "pod reaches the host node IP ($host_ip)" \
@@ -129,10 +130,13 @@ test_cni_del_releases_endpoint() {
   trap 'smoke_teardown_netns "$SMOKE_NETCONF"' EXIT
   write_netconf
 
-  local ip ep_before ep_after
+  local ip ep_before ep_after veth_before
   ip="$(attach_namespace "$SMOKE_NS_A" "app=smoke-a")" || fail "could not attach $SMOKE_NS_A"
   ep_before="$(endpoint_id_for_container "$SMOKE_NS_A")"
   assert_ne "" "$ep_before" "endpoint exists before CNI DEL"
+  veth_before="$("$CILIUM_DBG" endpoint get "$ep_before" -o json \
+    | jq -r '.[0].status.networking["interface-name"]')"
+  assert_ne "" "$veth_before" "endpoint reports a host-side interface"
 
   cni_invoke DEL "$SMOKE_NS_A" "/var/run/netns/${SMOKE_NS_A}" "$SMOKE_NETCONF" >/dev/null \
     || fail "CNI DEL failed"
@@ -148,10 +152,10 @@ test_cni_del_releases_endpoint() {
   assert_eq "" "$ep_after" "CNI DEL removed the cilium endpoint"
 
   # And the lxc veth went with it.
-  if ip link show "lxc$(printf '%s' "$ep_before")" >/dev/null 2>&1; then
-    fail "host-side veth for endpoint $ep_before survived CNI DEL"
+  if ip link show "$veth_before" >/dev/null 2>&1; then
+    fail "host-side veth $veth_before for endpoint $ep_before survived CNI DEL"
   fi
-  log "ok: host-side veth removed"
+  log "ok: host-side veth $veth_before removed"
 }
 
 test_endpoint_in_init_state_is_denied() {
@@ -168,6 +172,7 @@ test_endpoint_in_init_state_is_denied() {
   result="$(cni_invoke ADD "$SMOKE_NS_B" "/var/run/netns/${SMOKE_NS_B}" "$SMOKE_NETCONF")" \
     || fail "CNI ADD failed for $SMOKE_NS_B"
   ip_b="$(printf '%s' "$result" | jq -r '.ips[0].address' | cut -d/ -f1)"
+  { [ -n "$ip_b" ] && [ "$ip_b" != "null" ]; } || fail "CNI ADD returned no IP for $SMOKE_NS_B"
 
   local ep_b labels
   ep_b="$(endpoint_id_for_container "$SMOKE_NS_B")"

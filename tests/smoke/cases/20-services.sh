@@ -67,6 +67,7 @@ test_no_fatal_logs_in_current_run() {
     [ -n "$inv" ] || fail "snap.${unit}.service has no current invocation"
 
     out="$(journalctl "_SYSTEMD_INVOCATION_ID=${inv}" --no-pager 2>/dev/null || true)"
+    [ -n "$out" ] || fail "no journal records for the current snap.${unit}.service invocation"
     assert_not_contains "$out" "panic:" "no panic in the current snap.${unit}.service run"
     assert_not_contains "$out" "level=fatal" "no fatal log in the current snap.${unit}.service run"
   done

@@ -53,8 +53,16 @@ test_existing_endpoint_survives_agent_restart() {
   snap restart "$AGENT_SERVICE" >/dev/null || fail "snap restart of the agent failed"
   wait_agent_ok 180
 
-  ep_after="$(endpoint_id_for_container "$ns")"
-  assert_eq "$ep_before" "$ep_after" "the endpoint kept its identity across the restart"
+  # Endpoint restoration runs asynchronously alongside the API becoming
+  # ready, so the endpoint can briefly be absent from `endpoint list` even
+  # once state is Ok.
+  local restore_deadline=$((SECONDS + 60))
+  while [ "$SECONDS" -lt "$restore_deadline" ]; do
+    ep_after="$(endpoint_id_for_container "$ns")"
+    [ -n "$ep_after" ] && break
+    sleep 1
+  done
+  assert_eq "$ep_before" "$ep_after" "the endpoint kept its id across the restart"
 
   retry_until 60 "workload still has connectivity after the restart" \
     ip netns exec "$ns" ping -c 2 -W 2 "$router"

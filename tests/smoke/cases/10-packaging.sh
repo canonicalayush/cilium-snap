@@ -17,7 +17,6 @@ test_snap_apps_present() {
   local expected="cilium-agent cilium-dbg etcd etcdctl hubble install-cni"
   local app
   for app in $expected; do
-    snap run --help >/dev/null 2>&1 || true
     if [ -x "/snap/bin/${SNAP_NAME}.${app}" ] || snap services "${SNAP_NAME}.${app}" >/dev/null 2>&1; then
       log "ok: app ${SNAP_NAME}.${app} is present"
     else

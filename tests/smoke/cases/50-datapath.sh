@@ -92,5 +92,5 @@ test_masquerade_rules_installed() {
   # missing rules rather than a crash.
   local out
   out="$(iptables-save -t nat 2>/dev/null || true)"
-  assert_contains "$out" "CILIUM" "cilium installed its nat chains"
+  assert_matches "$out" "CILIUM_POST_nat.*MASQUERADE" "cilium installed an IPv4 masquerade rule"
 }

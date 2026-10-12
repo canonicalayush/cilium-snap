@@ -31,9 +31,9 @@ test_config_env_rendered() {
 test_config_values_are_shell_quoted() {
   # The wrappers `source` this file; an unquoted value such as
   # extra-args='--foo; reboot' would execute. The hook %q-escapes for that.
+  trap 'snap unset "$SNAP_NAME" extra-args >/dev/null 2>&1 || true' EXIT
   local hostile='--devices=eth0; touch /tmp/cilium-smoke-injection'
   rm -f /tmp/cilium-smoke-injection
-
   snap set "$SNAP_NAME" extra-args="$hostile" >/dev/null
   # shellcheck disable=SC1090
   ( set -eu; . "$CONFIG_ENV"; [ "$EXTRA_ARGS" = "$hostile" ] ) \

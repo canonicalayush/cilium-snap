@@ -67,9 +67,12 @@ test_cni_plugin_reports_version() {
 
 test_cni_plugin_rejects_bad_invocation() {
   # A plugin that returns success on garbage input would mask real failures in
-  # the ADD path below.
+  # the ADD path below. libcni reads stdin to EOF before dispatching on
+  # CNI_COMMAND, so an unredirected stdin can hang forever instead of
+  # exercising the unknown-command path; feed it a valid netconf.
   local bin_dir
   bin_dir="${CNI_BIN_DIR:-/opt/cni/bin}"
   assert_cmd_fails "cilium-cni rejects an unknown CNI_COMMAND" \
-    env CNI_COMMAND=NONSENSE CNI_PATH="$bin_dir" "${bin_dir}/cilium-cni"
+    env CNI_COMMAND=NONSENSE CNI_PATH="$bin_dir" "${bin_dir}/cilium-cni" \
+    <<<'{"cniVersion":"1.0.0","name":"cilium","type":"cilium-cni"}'
 }
