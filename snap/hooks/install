@@ -1,0 +1,9 @@
+#!/bin/bash
+# Runs once, on first install.
+set -eu
+
+mkdir -p "$SNAP_COMMON/cilium/state"
+mkdir -p "$SNAP_COMMON/cilium/lib"
+
+# Note: $SNAP_DATA/config.env is not seeded here. snapd always runs the
+# configure hook immediately after install, which renders it from scratch.

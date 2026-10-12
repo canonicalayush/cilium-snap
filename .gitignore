@@ -1,0 +1,22 @@
+# Snapcraft build artifacts and packages
+*.snap
+parts/
+prime/
+stage/
+.snapcraft/
+
+# build-component.sh's fallback build/install roots when run outside snapcraft
+build-scripts/.build/
+build-scripts/.install/
+
+# Editor / backup temporary files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+.fuse_hidden*
+
+# Environment and secrets
+.env
+.env.*
