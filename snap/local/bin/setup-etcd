@@ -1,0 +1,70 @@
+#!/bin/bash
+# One-shot: configures and starts the external `etcd` snap as Cilium's
+# kvstore. Run once per host that will run the etcd server (not per agent
+# host) before starting cilium-agent, or again with --force after changing
+# etcd-bind-address.
+#
+#   sudo snap install etcd
+#   sudo cilium-snap.setup-etcd
+#   sudo cilium-snap.setup-etcd --force   # overwrite an existing etcd.conf.yml
+set -eu
+
+FORCE=0
+[ "${1:-}" = "--force" ] && FORCE=1
+
+snap list etcd >/dev/null 2>&1 || {
+  echo "the 'etcd' snap is not installed. Install it first:" >&2
+  echo "  sudo snap install etcd" >&2
+  exit 1
+}
+
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+
+ETCD_COMMON="/var/snap/etcd/common"
+ETCD_CONF="$ETCD_COMMON/etcd.conf.yml"
+ETCD_DATA_DIR="$ETCD_COMMON/data"
+
+if [ -f "$ETCD_CONF" ] && [ "$FORCE" -ne 1 ]; then
+  echo "refusing to overwrite existing $ETCD_CONF (pass --force to replace it)" >&2
+  exit 1
+fi
+
+# etcd.conf.yml has no TLS/auth. Loopback is safe by construction; wider
+# binds must be restricted before continuing (warned below).
+ETCD_BIND_HOST="${ETCD_BIND_ADDRESS%:*}"
+ETCD_BIND_PORT="${ETCD_BIND_ADDRESS##*:}"
+case "$ETCD_BIND_HOST" in
+  127.0.0.1 | localhost) ;;
+  *)
+    cat >&2 <<WARNING
+WARNING: etcd-bind-address=$ETCD_BIND_ADDRESS is not loopback-only.
+etcd.conf.yml has no TLS or authentication, so anything that can reach
+port $ETCD_BIND_PORT on this host can read and write Cilium's full
+identity and policy state. Restrict access before continuing, e.g.:
+  sudo iptables -A INPUT -p tcp --dport $ETCD_BIND_PORT -s <agent-host-cidr> -j ACCEPT
+  sudo iptables -A INPUT -p tcp --dport $ETCD_BIND_PORT -j DROP
+WARNING
+    ;;
+esac
+
+mkdir -p "$ETCD_DATA_DIR"
+
+cat > "$ETCD_CONF" <<YAML
+# Rendered by cilium-snap.setup-etcd from \$SNAP_DATA/config.env. Re-run
+# (with --force) after changing etcd-bind-address via \`snap set\`.
+name: cilium-snap
+data-dir: $ETCD_DATA_DIR
+listen-client-urls: http://${ETCD_BIND_ADDRESS}
+advertise-client-urls: http://${ETCD_BIND_ADDRESS}
+listen-peer-urls: http://127.0.0.1:2380
+initial-advertise-peer-urls: http://127.0.0.1:2380
+initial-cluster: cilium-snap=http://127.0.0.1:2380
+YAML
+
+# `snap start` on an active service is a no-op and won't pick up a
+# rewritten config; always follow with `snap restart` too.
+snap start --enable etcd
+snap restart etcd
+echo "etcd snap configured and started, listening on ${ETCD_BIND_ADDRESS}"

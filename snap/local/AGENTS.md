@@ -9,4 +9,4 @@ Contains files dumped directly into the snap filesystem via the `wrappers` part 
 
 ## Key Files & Directories
 - `etc/`: Configuration templates and environment defaults (`defaults.env`).
-- `bin/`: Executables and daemon wrapper scripts (`cilium-agent-wrapper`, `etcd-wrapper`, `install-cni`).
+- `bin/`: Executables and daemon wrapper scripts (`cilium-agent-wrapper`, `install-cni`, `setup-etcd`).
