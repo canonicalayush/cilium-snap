@@ -1,6 +1,9 @@
 #!/bin/bash
 # Snap-specific helpers shared by the smoke test cases.
 
+# Consumed by the case files that source this; shellcheck only sees one file
+# at a time.
+# shellcheck disable=SC2034
 SNAP_NAME="${SNAP_NAME:-cilium-snap}"
 SNAP_COMMON="/var/snap/${SNAP_NAME}/common"
 SNAP_DATA_DIR="/var/snap/${SNAP_NAME}/current"
@@ -111,10 +114,12 @@ endpoint_resolve_identity() {
 # smoke_endpoint_count -- how many endpoints the agent still holds under a
 # smoke attachment ID.
 smoke_endpoint_count() {
-  "$CILIUM_DBG" endpoint list -o json 2>/dev/null \
+  local count
+  count="$("$CILIUM_DBG" endpoint list -o json 2>/dev/null \
     | jq -r --arg p "$SMOKE_NETNS_PREFIX" \
            '[.[] | select(.status["external-identifiers"]["cni-attachment-id"]? // "" | startswith($p))] | length' \
-    2>/dev/null || printf '0'
+    2>/dev/null)"
+  printf '%s' "${count:-0}"
 }
 
 # smoke_teardown_netns <netconf-file>

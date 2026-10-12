@@ -19,7 +19,7 @@ FILTER=""
 REMOTE_DIR="/home/ubuntu/cilium-snap-smoke"
 
 usage() {
-  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,11p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 

@@ -21,7 +21,7 @@ LIST_ONLY=0
 KEEP_INSTALL=1
 
 usage() {
-  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -47,7 +47,7 @@ require_root() {
 
 require_tools() {
   local missing=() tool
-  for tool in jq ip ping snap systemctl findmnt mountpoint iptables-save; do
+  for tool in jq ip ping pgrep snap systemctl findmnt mountpoint iptables-save; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
   done
   if [ "${#missing[@]}" -gt 0 ]; then
@@ -129,8 +129,8 @@ if [ "$LIST_ONLY" -eq 1 ]; then
   exit 0
 fi
 
-[ -n "$SNAP_FILE" ] && install_snap_file "$SNAP_FILE"
 trap global_cleanup EXIT
+[ -n "$SNAP_FILE" ] && install_snap_file "$SNAP_FILE"
 
 printf '%scilium-snap smoke tests%s\n' "$C_BOLD" "$C_RESET"
 printf '  host     %s (%s)\n' "$(hostname)" "$(uname -r)"
