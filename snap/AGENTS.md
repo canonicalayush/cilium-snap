@@ -9,6 +9,6 @@ Contains the core Snapcraft packaging configuration and lifecycle logic for `cil
 - Provide runtime entrypoints and daemon wrappers in `local/`.
 
 ## Key Files & Directories
-- `snapcraft.yaml`: Main snap recipe defining parts (`cilium`, `cni-plugins`, `llvm`, `runtime-deps`), daemons, and apps.
-- `hooks/`: Snap hooks (`install`, `configure`) managing environment configuration and initialization.
+- `snapcraft.yaml`: Main snap recipe defining parts (`build-deps`, `cilium`, `cni-plugins`, `llvm`, `runtime-deps`, `wrappers`), daemons, and apps.
+- `hooks/`: Snap hooks (`install`, `configure`, `remove`) managing environment configuration and initialization.
 - `local/`: Local scripts, environment defaults, and daemon wrappers bundled directly into the snap payload.

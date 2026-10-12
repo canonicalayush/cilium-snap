@@ -10,6 +10,8 @@ Root directory for the `cilium-snap` snap packaging project.
 ## Key Files & Directories
 - `snap/`: Snapcraft metadata, lifecycle hooks, and local service wrappers.
 - `build-scripts/`: Scripts and component definitions for building upstream source components.
+- `.github/`: GitHub Actions CI workflows (lint and formatting checks).
 - `README.md`: Concise repository overview, scope, build, and usage guide.
 - `LICENSE`: GNU General Public License v3.0 (GPL-3.0).
 - `.gitignore`: Ignore rules for local build artifacts and temporary files.
+- `.yamllint.yaml`: yamllint ruleset enforced by CI on `snap/snapcraft.yaml` and `.github/`.

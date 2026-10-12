@@ -9,7 +9,7 @@ Because Cilium requires a key-value store for identity and state management when
 - **Snap packaging**: Defining the `cilium-snap` snap specification in `snap/snapcraft.yaml` with classic confinement.
 - **Upstream component builds**: Fetching and compiling pinned versions of upstream components (`cilium` and `cni-plugins`) via `build-scripts/`.
 - **Runtime service orchestration**: Providing a daemon wrapper (`cilium-agent-wrapper`) and configuration hooks to manage the local `cilium-agent` service and settings, plus a one-shot (`setup-etcd`) to configure and start the external `etcd` snap as its kvstore.
-- **CNI deployment**: Providing host CNI installation scripts (`install-cni`) to configure network interfaces and plugins on the host.
+- **CNI deployment**: Providing a host CNI installation app (`install-cni`) that copies the CNI plugin binaries and writes the Cilium CNI config to the host.
 
 ## Building the snap
 
