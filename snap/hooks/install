@@ -5,6 +5,5 @@ set -eu
 mkdir -p "$SNAP_COMMON/cilium/state"
 mkdir -p "$SNAP_COMMON/cilium/lib"
 
-# Seed the effective config so the daemons have something to source before
-# the user ever runs `snap set`.
-cp "$SNAP/etc/defaults.env" "$SNAP_DATA/config.env"
+# Note: $SNAP_DATA/config.env is not seeded here. snapd always runs the
+# configure hook immediately after install, which renders it from scratch.
