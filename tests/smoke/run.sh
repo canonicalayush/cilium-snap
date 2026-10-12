@@ -22,6 +22,13 @@ LIST_ONLY=0
 KEEP_INSTALL=1
 RESET_ETCD=0
 
+# Captured before any case runs so cleanup can restore rather than blindly
+# unset a pre-existing `debug`/`extra-args` value on a reused install.
+ORIG_HAS_DEBUG=0
+ORIG_DEBUG=""
+ORIG_HAS_EXTRA_ARGS=0
+ORIG_EXTRA_ARGS=""
+
 usage() {
   sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
@@ -103,13 +110,37 @@ install_snap_file() {
     || exit 1
 }
 
+capture_original_config() {
+  local value
+  if value="$(snap get "$SNAP_NAME" debug 2>/dev/null)"; then
+    ORIG_HAS_DEBUG=1
+    ORIG_DEBUG="$value"
+  fi
+  if value="$(snap get "$SNAP_NAME" extra-args 2>/dev/null)"; then
+    ORIG_HAS_EXTRA_ARGS=1
+    ORIG_EXTRA_ARGS="$value"
+  fi
+}
+
+restore_original_config() {
+  if [ "$ORIG_HAS_DEBUG" -eq 1 ]; then
+    snap set "$SNAP_NAME" "debug=$ORIG_DEBUG" >/dev/null 2>&1 || true
+  else
+    snap unset "$SNAP_NAME" debug >/dev/null 2>&1 || true
+  fi
+  if [ "$ORIG_HAS_EXTRA_ARGS" -eq 1 ]; then
+    snap set "$SNAP_NAME" "extra-args=$ORIG_EXTRA_ARGS" >/dev/null 2>&1 || true
+  else
+    snap unset "$SNAP_NAME" extra-args >/dev/null 2>&1 || true
+  fi
+}
+
 global_cleanup() {
   smoke_teardown_netns /tmp/cilium-smoke-netconf.json
   smoke_teardown_netns /tmp/cilium-smoke-restart.json
   rm -f /tmp/cilium-smoke-netconf.json /tmp/cilium-smoke-restart.json \
         /tmp/cilium-smoke-injection
-  snap unset "$SNAP_NAME" debug >/dev/null 2>&1 || true
-  snap unset "$SNAP_NAME" extra-args >/dev/null 2>&1 || true
+  restore_original_config
   if [ "$KEEP_INSTALL" -eq 0 ]; then
     info "removing $SNAP_NAME"
     snap remove --purge "$SNAP_NAME" >/dev/null 2>&1 || true
@@ -159,6 +190,7 @@ fi
 
 trap global_cleanup EXIT
 [ -n "$SNAP_FILE" ] && install_snap_file "$SNAP_FILE"
+capture_original_config
 
 printf '%scilium-snap smoke tests%s\n' "$C_BOLD" "$C_RESET"
 printf '  host     %s (%s)\n' "$(hostname)" "$(uname -r)"
