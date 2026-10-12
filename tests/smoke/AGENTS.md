@@ -21,7 +21,7 @@ The suite needs root, a real kernel, and a free `127.0.0.1:2379`. It never build
 - `60-cni.sh`: `install-cni` places binaries and a valid conflist, is idempotent, plugin version handshake, bad invocation rejected.
 - `70-connectivity.sh`: CNI ADD/DEL against real network namespaces, pod-to-pod, pod-to-host and masqueraded egress traffic, default-deny for endpoints still in `reserved:init`.
 - `80-configuration.sh`: `config.env` rendering and shell-quoting, `snap set`/`snap unset` reaching the agent, no-op settings not restarting it, rapid changes not wedging it.
-- `90-lifecycle.sh`: Agent, etcd and whole-snap restarts recover, pinned maps survive, datapath reattaches, workloads can still be networked afterwards.
+- `90-lifecycle.sh`: Agent, etcd and whole-snap restarts recover, existing endpoints retain connectivity, the datapath reattaches, and new workloads can still be networked afterwards.
 
 ## Conventions
 - A case is a `test_*` function; it fails by calling an assertion helper or returning non-zero.
