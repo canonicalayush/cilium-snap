@@ -3,9 +3,10 @@
 #
 # Mirrors canonical/k8s-snap's build-scripts/build-component.sh, with one
 # addition: k8s-snap pins every component to a tag and uses a shallow
-# `git clone -b <tag>`. Cilium is pinned here to a bare commit SHA (the tree
-# this work was scoped against is 1.21.0-dev, which has no release tag), and
-# `-b` does not accept a SHA -- so fall back to fetch+checkout in that case.
+# `git clone -b <tag>`. A component here can instead be pinned to a bare
+# commit SHA (useful when the work needs a commit that predates any release
+# tag), and `-b` does not accept a SHA -- so fall back to fetch+checkout in
+# that case.
 
 set -uex
 

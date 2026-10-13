@@ -40,7 +40,9 @@ test_client_binaries_run() {
 
 test_pinned_versions_match_build() {
   # The snap version string is built from components/cilium/version, so the
-  # agent the snap ships must report the same abbreviated SHA.
+  # agent the snap ships must report a build derived from that same pin --
+  # an abbreviated git SHA for a bare-commit pin, the release itself for a
+  # tag pin.
   local snap_version agent_version
   snap_version="$(snap list "$SNAP_NAME" | awk 'NR==2 {print $2}')"
   agent_version="$(cilium_status_field '.cilium.msg')"
@@ -52,7 +54,8 @@ test_pinned_versions_match_build() {
         "agent build SHA matches the snap version string"
       ;;
     *)
-      skip "snap version '$snap_version' carries no git pin to cross-check"
+      assert_contains "$agent_version" "$snap_version" \
+        "agent build version matches the snap version string"
       ;;
   esac
 }
