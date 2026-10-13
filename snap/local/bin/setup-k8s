@@ -1,0 +1,200 @@
+#!/bin/bash
+# One-shot: attaches this node's agent to an existing in-cluster Cilium
+# (k8s-snap's bundled release `ck-network` in kube-system). Mints apiserver
+# credentials, syncs kube-system/cilium-config so the agent inherits cluster
+# settings, and excludes this node from the in-cluster cilium DaemonSet.
+#
+#   sudo cilium-snap.setup-k8s
+#   sudo snap set cilium-snap mode=kubernetes
+#   sudo cilium-snap.install-cni
+set -eu
+
+ADMIN_KUBECONFIG="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+SERVER=""
+NODE=""
+SKIP_DAEMONSET_PATCH=0
+SKIP_CONFIG_SYNC=0
+FORCE=0
+
+usage() {
+  sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  exit "${1:-0}"
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --kubeconfig) ADMIN_KUBECONFIG="${2:?--kubeconfig needs a path}"; shift 2 ;;
+    --server) SERVER="${2:?--server needs a URL}"; shift 2 ;;
+    --node) NODE="${2:?--node needs a name}"; shift 2 ;;
+    --skip-daemonset-patch) SKIP_DAEMONSET_PATCH=1; shift ;;
+    --skip-config-sync) SKIP_CONFIG_SYNC=1; shift ;;
+    --force) FORCE=1; shift ;;
+    -h|--help) usage 0 ;;
+    *) printf 'unknown argument: %s\n\n' "$1" >&2; usage 1 ;;
+  esac
+done
+
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+
+[ -n "$SERVER" ] || SERVER="https://${K8S_APISERVER_HOST}:${K8S_APISERVER_PORT}"
+[ -n "$NODE" ] || NODE="$(hostname | tr '[:upper:]' '[:lower:]')"
+
+if [ ! -f "$ADMIN_KUBECONFIG" ]; then
+  cat >&2 <<EOF
+no kubeconfig at $ADMIN_KUBECONFIG
+admin.conf only exists on control-plane nodes; on a worker, copy one from a
+control-plane node and pass --kubeconfig <path>.
+EOF
+  exit 1
+fi
+
+if command -v kubectl >/dev/null 2>&1; then
+  KUBECTL=(kubectl)
+elif command -v k8s >/dev/null 2>&1; then
+  KUBECTL=(k8s kubectl)
+else
+  echo "need kubectl (or the k8s snap) on PATH" >&2
+  exit 1
+fi
+kubectl() { "${KUBECTL[@]}" --kubeconfig "$ADMIN_KUBECONFIG" "$@"; }
+
+if ! kubectl get serviceaccount cilium -n "$K8S_NAMESPACE" >/dev/null 2>&1; then
+  cat >&2 <<EOF
+ServiceAccount ${K8S_NAMESPACE}/cilium not found -- this mode attaches to an
+existing in-cluster Cilium; enable the k8s-snap network feature first.
+EOF
+  exit 1
+fi
+
+# --- mint long-lived credentials ----------------------------------------
+# The agent is a long-running daemon with no token-refresh path, so a
+# short-lived `kubectl create token` is not enough: mint a long-lived
+# ServiceAccount token Secret instead (apply is idempotent).
+echo "minting apiserver credentials for ${K8S_NAMESPACE}:cilium"
+kubectl apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cilium-snap-token
+  namespace: ${K8S_NAMESPACE}
+  annotations:
+    kubernetes.io/service-account.name: cilium
+type: kubernetes.io/service-account-token
+EOF
+
+TOKEN_B64=""
+for _ in $(seq 1 30); do
+  TOKEN_B64="$(kubectl get secret cilium-snap-token -n "$K8S_NAMESPACE" -o jsonpath='{.data.token}' 2>/dev/null || true)"
+  [ -n "$TOKEN_B64" ] && break
+  sleep 1
+done
+[ -n "$TOKEN_B64" ] || { echo "timed out waiting for cilium-snap-token to be populated" >&2; exit 1; }
+
+CA_B64="$(kubectl get secret cilium-snap-token -n "$K8S_NAMESPACE" -o jsonpath='{.data.ca\.crt}')"
+TOKEN="$(printf '%s' "$TOKEN_B64" | base64 -d)"
+
+# --- write kubeconfig ----------------------------------------------------
+KUBECONFIG_OUT="$SNAP_DATA/kubeconfig"
+if [ -f "$KUBECONFIG_OUT" ] && [ "$FORCE" -ne 1 ]; then
+  echo "refusing to overwrite existing $KUBECONFIG_OUT (pass --force to replace it)" >&2
+  exit 1
+fi
+
+KUBECONFIG_TMP="$(mktemp "${SNAP_DATA}/.kubeconfig.XXXXXX")"
+trap 'rm -f "$KUBECONFIG_TMP"' EXIT
+chmod 0600 "$KUBECONFIG_TMP"
+cat > "$KUBECONFIG_TMP" <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+  - name: cilium-snap
+    cluster:
+      server: ${SERVER}
+      certificate-authority-data: ${CA_B64}
+users:
+  - name: cilium-snap
+    user:
+      token: ${TOKEN}
+contexts:
+  - name: cilium-snap
+    context:
+      cluster: cilium-snap
+      user: cilium-snap
+current-context: cilium-snap
+EOF
+mv "$KUBECONFIG_TMP" "$KUBECONFIG_OUT"
+trap - EXIT
+echo "wrote $KUBECONFIG_OUT"
+
+# --- sync cluster cilium-config -------------------------------------------
+if [ "$SKIP_CONFIG_SYNC" -eq 1 ] || [ "$K8S_CONFIG_SYNC" != "true" ]; then
+  echo "skipping cluster config sync"
+else
+  # validateConfigMap (pkg/option/config.go) fatals the agent on any
+  # --config-dir key that is not a registered flag; the cluster chart may not
+  # be key-identical to the shipped agent, so only sync recognized flags.
+  KNOWN_OPTS="$("$SNAP/usr/bin/cilium-agent" --help 2>&1 | grep -oE -- '--[a-z0-9-]+' | sed 's/^--//' | sort -u)"
+
+  # These are supplied as explicit, node-local flags by the wrapper; a synced
+  # config-dir value for any of them would be redundant at best.
+  DENYLIST="procfs write-cni-conf-when-ready read-cni-conf bpf-root cgroup-root state-dir lib-dir config-dir identity-allocation-mode debug kvstore kvstore-opt"
+
+  # One GET for the whole map, not one per key: cheaper, and kubectl's own
+  # stdout must never be redirected straight to a file here -- under
+  # classic confinement, piping another snap's command output directly into
+  # an inherited file descriptor silently truncates it to zero bytes.
+  # Routing it through a shell variable (command substitution) and writing
+  # with the printf builtin avoids that.
+  CM_JSON="$(kubectl get configmap cilium-config -n "$K8S_NAMESPACE" -o json)"
+
+  CONFIG_TMP="$(mktemp -d "${SNAP_DATA}/.cilium-config.XXXXXX")"
+  SYNCED=0
+  while IFS= read -r key; do
+    [ -n "$key" ] || continue
+    if ! printf '%s\n' "$KNOWN_OPTS" | grep -qx "$key"; then
+      echo "skipping unknown option $key"
+      continue
+    fi
+    case " $DENYLIST " in
+      *" $key "*) continue ;;
+    esac
+    printf '%s' "$(printf '%s' "$CM_JSON" | jq -r --arg k "$key" '.data[$k]')" > "$CONFIG_TMP/$key"
+    SYNCED=$((SYNCED + 1))
+  done < <(printf '%s' "$CM_JSON" | jq -r '.data | keys[]')
+
+  rm -rf "$SNAP_DATA/cilium-config"
+  mv "$CONFIG_TMP" "$SNAP_DATA/cilium-config"
+  echo "synced $SYNCED cluster config keys to $SNAP_DATA/cilium-config"
+fi
+
+# --- exclude this node from the in-cluster DaemonSet ----------------------
+if [ "$SKIP_DAEMONSET_PATCH" -eq 1 ]; then
+  echo "skipping DaemonSet node exclusion"
+else
+  kubectl label node "$NODE" io.cilium.snap/external-agent=true --overwrite >/dev/null
+  kubectl patch daemonset cilium -n "$K8S_NAMESPACE" --type=strategic -p \
+    '{"spec":{"template":{"spec":{"affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"io.cilium.snap/external-agent","operator":"DoesNotExist"}]}]}}}}}}}' \
+    >/dev/null
+
+  # The affinity patch above does not evict the node's existing cilium Pod
+  # immediately; removing the taint before that eviction lands races the
+  # operator's own watcher, which re-adds the taint the moment it sees the
+  # Pod go away. Wait for it to actually be gone first.
+  for _ in $(seq 1 30); do
+    [ -z "$(kubectl get pod -n "$K8S_NAMESPACE" -l k8s-app=cilium --field-selector "spec.nodeName=${NODE}" -o name 2>/dev/null)" ] && break
+    sleep 1
+  done
+
+  # cilium-operator's node-taint-sync controller clears this taint only by
+  # watching for a Running Pod matching k8s-app=cilium on the node; excluding
+  # the node from the DaemonSet means that Pod never exists, so the operator
+  # would otherwise leave every workload permanently unschedulable here.
+  kubectl taint node "$NODE" node.cilium.io/agent-not-ready- >/dev/null 2>&1 || true
+
+  echo "labelled $NODE, excluded it from the in-cluster cilium DaemonSet, and cleared its agent-not-ready taint"
+  echo "NOTE: a k8sd re-apply of the ck-network release reverts the DaemonSet patch; re-run cilium-snap.setup-k8s to restore it"
+fi
+
+echo "done. If not already set: sudo snap set cilium-snap mode=kubernetes; sudo cilium-snap.install-cni"
