@@ -12,6 +12,7 @@ One file per concern, run in filename order. `run.sh` sources each file and runs
 - `60-cni.sh`: `install-cni` output and the CNI plugin handshake.
 - `70-connectivity.sh`: Real traffic through CNI-attached network namespaces.
 - `80-configuration.sh`: `snap set` plumbing, quoting, and restart behaviour.
+- `85-k8s-mode.sh`: Kubernetes-mode config validation and `install-cni` host-ownership rules (cluster-free).
 - `90-lifecycle.sh`: Restart recovery for the agent, etcd, and the whole snap.
 
 ## Writing a case

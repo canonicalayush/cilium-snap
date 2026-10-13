@@ -21,6 +21,7 @@ The suite needs root, a real kernel, and a free `127.0.0.1:2379`. It never build
 - `60-cni.sh`: `install-cni` places binaries and a valid conflist, is idempotent, plugin version handshake, bad invocation rejected.
 - `70-connectivity.sh`: CNI ADD/DEL against real network namespaces, pod-to-pod, pod-to-host and masqueraded egress traffic, default-deny for endpoints still in `reserved:init`.
 - `80-configuration.sh`: `config.env` rendering and shell-quoting, `snap set`/`snap unset` reaching the agent, no-op settings not restarting it, rapid changes not wedging it.
+- `85-k8s-mode.sh`: `mode=kubernetes` fails fast without credentials, `install-cni` leaves foreign host plugins untouched and defers the conflist to the agent, `setup-k8s` checks its kubeconfig precondition before touching a cluster.
 - `90-lifecycle.sh`: Agent, etcd and whole-snap restarts recover, existing endpoints retain connectivity, the datapath reattaches, and new workloads can still be networked afterwards.
 
 ## Conventions
