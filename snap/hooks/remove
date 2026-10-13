@@ -5,9 +5,17 @@
 set -eu
 
 CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
-CNI_CONF_DIR="${CNI_CONF_DIR:-/etc/cni/net.d}"
 
-rm -f "$CNI_CONF_DIR/05-cilium.conflist"
-for bin in cilium-cni loopback portmap host-local; do
-  rm -f "$CNI_BIN_DIR/$bin"
-done
+INSTALLED_BIN_MANIFEST="$SNAP_COMMON/installed-cni-bin"
+INSTALLED_CONF_MANIFEST="$SNAP_COMMON/installed-cni-conf"
+
+if [ -f "$INSTALLED_CONF_MANIFEST" ]; then
+  rm -f "$(cat "$INSTALLED_CONF_MANIFEST")"
+fi
+
+if [ -f "$INSTALLED_BIN_MANIFEST" ]; then
+  while IFS= read -r bin; do
+    [ -n "$bin" ] || continue
+    rm -f "$CNI_BIN_DIR/$bin"
+  done < "$INSTALLED_BIN_MANIFEST"
+fi

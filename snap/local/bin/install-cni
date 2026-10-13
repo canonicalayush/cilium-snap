@@ -1,28 +1,61 @@
 #!/bin/bash
-# Install the Cilium CNI plugin and the reference CNI plugins onto the host.
+# Install the Cilium CNI plugin and (standalone mode) the reference CNI
+# plugins onto the host.
 #
 # In Kubernetes this is done by the install-cni-binaries init container
 # (install/kubernetes/cilium/templates/cilium-agent/daemonset.yaml:804) and the
-# agent writes the conflist itself via --write-cni-conf-when-ready. There is no
-# kubelet here and CNI config management is off, so both steps are done here.
+# agent writes the conflist itself via --write-cni-conf-when-ready. Standalone
+# mode has no kubelet and no CNI config management, so both steps are done
+# here instead.
 #
 # cilium-cni alone is not enough: a CNI runtime needs `loopback` to configure
 # lo inside the container netns. Cilium ships loopback in its own runtime image
 # for the same reason (images/runtime/build-cni.sh).
+#
+# kubernetes mode: /opt/cni/bin and the conflist belong to k8sd (the
+# reference plugins there are symlinks to its own multiplexer binary). Only
+# cilium-cni -- whose version must match this agent -- is installed or
+# overwritten; other bundled plugins are installed only if missing, and the
+# conflist is left to the agent.
 set -eu
 
-CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
-CNI_CONF_DIR="${CNI_CONF_DIR:-/etc/cni/net.d}"
+# A pre-existing environment override takes precedence over defaults.env and
+# config.env, which may also set these (an existing contract of this script).
+CNI_BIN_DIR_OVERRIDE="${CNI_BIN_DIR:-}"
+CNI_CONF_DIR_OVERRIDE="${CNI_CONF_DIR:-}"
+
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+
+[ -n "$CNI_BIN_DIR_OVERRIDE" ] && CNI_BIN_DIR="$CNI_BIN_DIR_OVERRIDE"
+[ -n "$CNI_CONF_DIR_OVERRIDE" ] && CNI_CONF_DIR="$CNI_CONF_DIR_OVERRIDE"
 
 mkdir -p "$CNI_BIN_DIR" "$CNI_CONF_DIR"
 
+# snapd has no notion that this one-shot touched files outside $SNAP; the
+# remove hook reads these manifests back to undo exactly what was installed.
+INSTALLED_BIN_MANIFEST="$SNAP_COMMON/installed-cni-bin"
+INSTALLED_CONF_MANIFEST="$SNAP_COMMON/installed-cni-conf"
+: > "$INSTALLED_BIN_MANIFEST"
+rm -f "$INSTALLED_CONF_MANIFEST"
+
 for bin in "$SNAP"/opt/cni/bin/*; do
   [ -f "$bin" ] || continue
-  install -m 0755 "$bin" "$CNI_BIN_DIR/$(basename "$bin")"
-  echo "installed $(basename "$bin") -> $CNI_BIN_DIR"
+  name="$(basename "$bin")"
+  if [ "$MODE" = kubernetes ] && [ "$name" != cilium-cni ] && [ -e "$CNI_BIN_DIR/$name" ]; then
+    echo "leaving existing $name in $CNI_BIN_DIR untouched"
+  else
+    install -m 0755 "$bin" "$CNI_BIN_DIR/$name"
+    echo "installed $name -> $CNI_BIN_DIR"
+  fi
+  echo "$name" >> "$INSTALLED_BIN_MANIFEST"
 done
 
-cat > "$CNI_CONF_DIR/05-cilium.conflist" <<EOF
+if [ "$MODE" = kubernetes ]; then
+  echo "conflist is written by cilium-agent at $CNI_CONF_DIR/05-cilium.conflist once it is ready"
+else
+  cat > "$CNI_CONF_DIR/05-cilium.conflist" <<EOF
 {
   "cniVersion": "1.0.0",
   "name": "cilium",
@@ -38,5 +71,6 @@ cat > "$CNI_CONF_DIR/05-cilium.conflist" <<EOF
   ]
 }
 EOF
-
-echo "installed CNI config  -> $CNI_CONF_DIR/05-cilium.conflist"
+  echo "$CNI_CONF_DIR/05-cilium.conflist" > "$INSTALLED_CONF_MANIFEST"
+  echo "installed CNI config  -> $CNI_CONF_DIR/05-cilium.conflist"
+fi
