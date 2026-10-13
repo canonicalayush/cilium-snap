@@ -69,12 +69,18 @@ parts:
     build-attributes: [enable-patchelf]
     override-build: |
       $CRAFT_PROJECT_DIR/build-scripts/build-component.sh cilium
-      # Snap version strings are capped at 32 characters, so abbreviate the
-      # pinned SHA here. The full 40-char ref stays in components/cilium/version,
-      # which is what the build actually fetches.
       CILIUM_VERSION="$(cat "$CRAFT_PART_BUILD/cilium/VERSION")"
-      CILIUM_GIT_REV="$(cut -c1-12 "$CRAFT_PROJECT_DIR/build-scripts/components/cilium/version")"
-      craftctl set version="${CILIUM_VERSION}+git.${CILIUM_GIT_REV}"
+      CILIUM_PIN="$(cat "$CRAFT_PROJECT_DIR/build-scripts/components/cilium/version")"
+      # Bare commit SHA pin (no release tag): CILIUM_VERSION alone (Cilium's
+      # own VERSION file) does not change between commits on a dev branch, so
+      # disambiguate with an abbreviated git ref. Snap version strings are
+      # capped at 32 characters. Tag pin: CILIUM_VERSION already matches the
+      # tag, use it as-is.
+      if printf '%s' "$CILIUM_PIN" | grep -qE '^[0-9a-f]{7,40}$'; then
+        craftctl set version="${CILIUM_VERSION}+git.$(printf '%s' "$CILIUM_PIN" | cut -c1-12)"
+      else
+        craftctl set version="$CILIUM_VERSION"
+      fi
 
   cni-plugins:
     after: [build-deps]
