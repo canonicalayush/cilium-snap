@@ -5,10 +5,6 @@ prime/
 stage/
 .snapcraft/
 
-# build-component.sh's fallback build/install roots when run outside snapcraft
-build-scripts/.build/
-build-scripts/.install/
-
 # Editor / backup temporary files
 *~
 *.swp
