@@ -2,6 +2,9 @@ name: Lint and Formatting
 
 "on":
   pull_request:
+  push:
+    branches:
+      - main
 permissions:
   contents: read
 
@@ -25,8 +28,6 @@ jobs:
         with:
           scandir: '.'
         env:
-          # SC1090/1091: dynamic `source` (snap hooks sourcing config.env, the
-          # smoke suite sourcing its lib/case files) is intentional.
           SHELLCHECK_OPTS: -e SC1090,SC1091
 
   yaml-lint:
