@@ -20,7 +20,7 @@ jobs:
         run: |
           find . -type f \
             \( -name "*.sh" -o -name "install" -o -name "configure" -o -name "*-wrapper" \
-               -o -name "install-cni" -o -name "setup-etcd" \) \
+               -o -name "install-cni" -o -name "setup-etcd" -o -name "setup-k8s" \) \
             -not -path "*/.*" -exec bash -n {} +
 
       - name: Run ShellCheck

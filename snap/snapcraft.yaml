@@ -167,3 +167,9 @@ apps:
   # not on every agent host.
   setup-etcd:
     command: bin/setup-etcd
+
+  # One-shot: mints apiserver credentials for this node's agent, syncs the
+  # cluster's cilium-config, and excludes the node from the in-cluster
+  # cilium DaemonSet. Only needed in kubernetes mode.
+  setup-k8s:
+    command: bin/setup-k8s

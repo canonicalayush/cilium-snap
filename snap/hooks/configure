@@ -49,8 +49,24 @@ trap 'rm -f "$RENDERED"' EXIT
   emit CGROUP_ROOT         "$(get cgroup-root CGROUP_ROOT)"
   emit DEBUG               "$(get debug DEBUG)"
   emit ENABLE_AUTO_DIRECT_NODE_ROUTES "$(get enable-auto-direct-node-routes ENABLE_AUTO_DIRECT_NODE_ROUTES)"
+  emit MODE                "$(get mode MODE)"
+  emit K8S_KUBECONFIG_PATH "$(get k8s-kubeconfig-path K8S_KUBECONFIG_PATH)"
+  emit K8S_APISERVER_HOST  "$(get k8s-apiserver-host K8S_APISERVER_HOST)"
+  emit K8S_APISERVER_PORT  "$(get k8s-apiserver-port K8S_APISERVER_PORT)"
+  emit K8S_NAMESPACE       "$(get k8s-namespace K8S_NAMESPACE)"
+  emit K8S_CONFIG_SYNC     "$(get k8s-config-sync K8S_CONFIG_SYNC)"
+  emit CNI_CONF_DIR        "$(get cni-conf-dir CNI_CONF_DIR)"
+  emit CNI_BIN_DIR         "$(get cni-bin-dir CNI_BIN_DIR)"
   emit EXTRA_ARGS          "$(get extra-args EXTRA_ARGS)"
 } > "$RENDERED"
+
+case "$(get mode MODE)" in
+  standalone | kubernetes) ;;
+  *)
+    echo "mode must be 'standalone' or 'kubernetes'" >&2
+    exit 1
+    ;;
+esac
 
 # systemd rate-limits restarts (StartLimitBurst=5/10s, not exposed by snapd);
 # only restart when the rendered config actually changed.
