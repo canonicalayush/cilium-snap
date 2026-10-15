@@ -4,7 +4,11 @@
 # cleans these up.
 set -eu
 
-CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
+CNI_BIN_DIR_OVERRIDE="${CNI_BIN_DIR:-}"
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+[ -n "$CNI_BIN_DIR_OVERRIDE" ] && CNI_BIN_DIR="$CNI_BIN_DIR_OVERRIDE"
 
 INSTALLED_BIN_MANIFEST="$SNAP_COMMON/installed-cni-bin"
 INSTALLED_CONF_MANIFEST="$SNAP_COMMON/installed-cni-conf"
