@@ -1,15 +1,18 @@
-# Cilium Standalone Snap
+# Cilium Snap
 
-This repository packages [Cilium](https://github.com/cilium/cilium) as a snap designed to run on a single host without a Kubernetes apiserver.
+This repository packages [Cilium](https://github.com/cilium/cilium) as a snap that runs the Cilium agent outside of a Kubernetes pod, in one of two modes:
 
-Because Cilium requires a key-value store for identity and state management when running standalone, this snap depends on the separately-installed [`etcd`](https://snapcraft.io/etcd) snap as that kvstore, and bundles datapath compilation toolchains and host CNI integration utilities.
+- **standalone** (default): no apiserver; Cilium's own etcd-backed kvstore holds identity and state.
+- **kubernetes**: attaches this node's agent to an existing in-cluster Cilium (e.g. k8s-snap's `ck-network`), inheriting its config and apiserver.
+
+Standalone mode depends on the separately-installed [`etcd`](https://snapcraft.io/etcd) snap as its kvstore. Both modes bundle datapath compilation toolchains and host CNI integration utilities.
 
 ## What this repository is responsible for
 
 - **Snap packaging**: Defining the `cilium-snap` snap specification in `snap/snapcraft.yaml` with classic confinement.
 - **Upstream component builds**: Fetching and compiling pinned versions of upstream components (`cilium` and `cni-plugins`) via `build-scripts/`.
-- **Runtime service orchestration**: Providing a daemon wrapper (`cilium-agent-wrapper`) and configuration hooks to manage the local `cilium-agent` service and settings, plus a one-shot (`setup-etcd`) to configure and start the external `etcd` snap as its kvstore.
-- **CNI deployment**: Providing a host CNI installation app (`install-cni`) that copies the CNI plugin binaries and writes the Cilium CNI config to the host.
+- **Runtime service orchestration**: Providing a daemon wrapper (`cilium-agent-wrapper`) and configuration hooks to manage the local `cilium-agent` service, branching its flag set on the `mode` key -- `standalone` waits for etcd and builds the kvstore/IPAM flags, `kubernetes` points the agent at a synced kubeconfig and cluster config. Includes two one-shots: `setup-etcd` (configures and starts the external `etcd` snap as kvstore) and `setup-k8s` (mints apiserver credentials, syncs the cluster's `cilium-config`, and excludes this node from the in-cluster `cilium` DaemonSet).
+- **CNI deployment**: Providing a host CNI installation app (`install-cni`) that copies the CNI plugin binaries and writes the Cilium CNI config to the host. In kubernetes mode it only installs `cilium-cni`, leaving the other plugins and the conflist to k8sd and the agent respectively.
 
 ## Building the snap
 
@@ -19,7 +22,7 @@ Build the snap using Snapcraft:
 snapcraft --use-lxd
 ```
 
-## Basic usage
+## Basic usage (standalone mode)
 
 Install the built snap:
 
@@ -84,6 +87,26 @@ sudo snap set cilium-snap etcd-listen-url=http://<etcd-host-ip>:2379 node-name=h
 The `enable-auto-direct-node-routes=true` in the commands above assumes `host-a` and `host-b` share a common L2 segment; Cilium installs a direct route to a node's PodCIDR only when that node is reachable in the same broadcast domain. If the agent hosts are separated by an L3/routed boundary, leave the setting off and distribute the pod CIDRs another way -- static routes on the intervening routers, a BGP daemon, or an encapsulating routing mode.
 
 All nodes sharing one etcd instance must use the same `cluster-name` (the `default` default is fine as long as every node uses it).
+
+## Kubernetes mode
+
+Attach this node's agent to an existing in-cluster Cilium (e.g. k8s-snap's `ck-network`) instead of running standalone:
+
+```bash
+sudo cilium-snap.setup-k8s     # mint apiserver credentials, sync cluster cilium-config, exclude this node from the in-cluster DaemonSet
+sudo snap set cilium-snap mode=kubernetes
+sudo cilium-snap.install-cni   # installs only cilium-cni; other plugins and the conflist come from k8sd and the agent
+```
+
+Keys:
+
+- `mode` (default `standalone`): `kubernetes` switches the agent to this mode.
+- `k8s-kubeconfig-path` (default: `$SNAP_DATA/kubeconfig`, written by `setup-k8s`): credentials for the apiserver.
+- `k8s-apiserver-host` / `k8s-apiserver-port` (default `127.0.0.1` / `6443`): apiserver address the agent uses for socket-LB and kube-proxy replacement.
+- `k8s-namespace` (default `kube-system`): namespace the cluster's Cilium is installed in.
+- `k8s-config-sync` (default `true`): sync `cilium-config` from the cluster so the node-local agent inherits its settings.
+
+`setup-k8s` requires a kubeconfig with cluster-admin access (default `/etc/kubernetes/admin.conf`; override with `--kubeconfig`); see `cilium-snap.setup-k8s --help` for its options.
 
 ## License
 
