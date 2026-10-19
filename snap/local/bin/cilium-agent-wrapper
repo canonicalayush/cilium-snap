@@ -1,5 +1,6 @@
 #!/bin/bash
-# cilium-agent, configured for standalone (no-apiserver) operation.
+# cilium-agent: standalone (etcd kvstore) or kubernetes (attach to an
+# existing in-cluster Cilium) depending on $MODE.
 set -eu
 
 # shellcheck disable=SC1091
@@ -25,81 +26,140 @@ mountpoint -q "$CGROUP_ROOT" || mount -t cgroup2 none "$CGROUP_ROOT"
 # --lib-dir must be writable, so refresh $SNAP's sources into SNAP_COMMON.
 rsync -a --delete "$SNAP/var/lib/cilium/bpf/" "$LIB_DIR/bpf/"
 
-# --- wait for the kvstore ----------------------------------------------
-# etcd is a separate snap with no systemd ordering guarantee; poll until
-# it is actually serving before building --kvstore-opt below.
-if ! [[ "$ETCD_LISTEN_URL" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]]; then
-  echo "etcd-listen-url must be of the form http(s)://<host>:<port>, got '$ETCD_LISTEN_URL'" >&2
-  exit 1
-fi
-ETCD_HOST="${BASH_REMATCH[1]//[\[\]]/}"
-ETCD_PORT="${BASH_REMATCH[2]}"
-for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
-  if (exec 3<>"/dev/tcp/${ETCD_HOST}/${ETCD_PORT}") 2>/dev/null; then
-    break
-  fi
-  sleep 1
-done
+case "$MODE" in
+  standalone)
+    # --- wait for the kvstore ---------------------------------------------
+    # etcd is a separate snap with no systemd ordering guarantee; poll until
+    # it is actually serving before building --kvstore-opt below.
+    if ! [[ "$ETCD_LISTEN_URL" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]]; then
+      echo "etcd-listen-url must be of the form http(s)://<host>:<port>, got '$ETCD_LISTEN_URL'" >&2
+      exit 1
+    fi
+    ETCD_HOST="${BASH_REMATCH[1]//[\[\]]/}"
+    ETCD_PORT="${BASH_REMATCH[2]}"
+    for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
+      if (exec 3<>"/dev/tcp/${ETCD_HOST}/${ETCD_PORT}") 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
 
-# --- flags -------------------------------------------------------------
-# --enable-k8s=false   pkg/option/config.go:177
-# --kvstore=etcd       mandatory: unset silently switches identity-allocation
-#                      to "crd" (config.go:2784-2789), which needs an apiserver.
-# --ipam               cluster-pool only needs --ipv4-range; crd/eni/azure/
-#                      alibabacloud/multi-pool need a CiliumNode (apiserver).
-#                      delegated-plugin works but needs the flag chain below.
-# --- egress masquerade interface ---------------------------------------
-# Masquerade with IPAM != cluster-pool/kubernetes and no egress interface
-# panics (iptables.go:457-460: no guaranteed PodCIDR for source-range MASQ
-# rules). Auto-detected from the default route; absence is non-fatal under
-# cluster-pool.
-if [ -z "$EGRESS_INTERFACE" ]; then
-  # Field-position parsing breaks on a gatewayless default route
-  # (`default dev wg0 scope link`, common for tun/VPN interfaces), where the
-  # interface is not fixed field 5. Scan for the `dev` keyword instead.
-  EGRESS_INTERFACE="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')" || true
-fi
+    # --- flags ---------------------------------------------------------
+    # --enable-k8s=false   pkg/option/config.go:177
+    # --kvstore=etcd       mandatory: unset silently switches identity-allocation
+    #                      to "crd" (config.go:2784-2789), which needs an apiserver.
+    # --ipam               cluster-pool only needs --ipv4-range; crd/eni/azure/
+    #                      alibabacloud/multi-pool need a CiliumNode (apiserver).
+    #                      delegated-plugin works but needs the flag chain below.
+    # --- egress masquerade interface ------------------------------------
+    # Masquerade with IPAM != cluster-pool/kubernetes and no egress interface
+    # panics (iptables.go:457-460: no guaranteed PodCIDR for source-range MASQ
+    # rules). Auto-detected from the default route; absence is non-fatal under
+    # cluster-pool.
+    if [ -z "$EGRESS_INTERFACE" ]; then
+      # Field-position parsing breaks on a gatewayless default route
+      # (`default dev wg0 scope link`, common for tun/VPN interfaces), where the
+      # interface is not fixed field 5. Scan for the `dev` keyword instead.
+      EGRESS_INTERFACE="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')" || true
+    fi
 
-# delegated-plugin's dependent flags (harmless under cluster-pool, passed
-# unconditionally): --local-router-ipv4, health-checking=false and
-# envoy-config=false are required by it (config.go:2993-3015); a local
-# router address requires native/hybrid routing (config.go:1963); native
-# routing + IPv4 masquerade requires an explicit CIDR (config.go:2944-2969),
-# which also applies under cluster-pool. IPv6 stays off: enabling it needs
-# its own native-routing-cidr and local-router-ipv6 (config.go:2971-3001).
-set -- \
-  --enable-k8s=false \
-  --kvstore=etcd \
-  --kvstore-opt "etcd.address=${ETCD_HOST}:${ETCD_PORT}" \
-  --identity-allocation-mode=kvstore \
-  --ipam="$IPAM" \
-  --enable-ipv4="$ENABLE_IPV4" \
-  --enable-ipv6="$ENABLE_IPV6" \
-  --routing-mode="$ROUTING_MODE" \
-  --local-router-ipv4="$LOCAL_ROUTER_IPV4" \
-  --ipv4-native-routing-cidr="$NATIVE_ROUTING_CIDR" \
-  --enable-endpoint-health-checking=false \
-  --enable-envoy-config=false \
-  --bpf-root="$BPF_ROOT" \
-  --cgroup-root="$CGROUP_ROOT" \
-  --state-dir="$STATE_DIR" \
-  --lib-dir="$LIB_DIR" \
-  --debug="$DEBUG" \
-  --cluster-name="$CLUSTER_NAME" \
-  --cluster-id="$CLUSTER_ID" \
-  --auto-direct-node-routes="$ENABLE_AUTO_DIRECT_NODE_ROUTES"
+    # delegated-plugin's dependent flags (harmless under cluster-pool, passed
+    # unconditionally): --local-router-ipv4, health-checking=false and
+    # envoy-config=false are required by it (config.go:2993-3015); a local
+    # router address requires native/hybrid routing (config.go:1963); native
+    # routing + IPv4 masquerade requires an explicit CIDR (config.go:2944-2969),
+    # which also applies under cluster-pool. IPv6 stays off: enabling it needs
+    # its own native-routing-cidr and local-router-ipv6 (config.go:2971-3001).
+    set -- \
+      --enable-k8s=false \
+      --kvstore=etcd \
+      --kvstore-opt "etcd.address=${ETCD_HOST}:${ETCD_PORT}" \
+      --identity-allocation-mode=kvstore \
+      --ipam="$IPAM" \
+      --enable-ipv4="$ENABLE_IPV4" \
+      --enable-ipv6="$ENABLE_IPV6" \
+      --routing-mode="$ROUTING_MODE" \
+      --local-router-ipv4="$LOCAL_ROUTER_IPV4" \
+      --ipv4-native-routing-cidr="$NATIVE_ROUTING_CIDR" \
+      --enable-endpoint-health-checking=false \
+      --enable-envoy-config=false \
+      --bpf-root="$BPF_ROOT" \
+      --cgroup-root="$CGROUP_ROOT" \
+      --state-dir="$STATE_DIR" \
+      --lib-dir="$LIB_DIR" \
+      --debug="$DEBUG" \
+      --cluster-name="$CLUSTER_NAME" \
+      --cluster-id="$CLUSTER_ID" \
+      --auto-direct-node-routes="$ENABLE_AUTO_DIRECT_NODE_ROUTES"
 
-[ -n "$IPV4_RANGE" ] && set -- "$@" --ipv4-range="$IPV4_RANGE"
-[ -n "$EGRESS_INTERFACE" ] && set -- "$@" --egress-masquerade-interfaces="$EGRESS_INTERFACE"
+    [ -n "$IPV4_RANGE" ] && set -- "$@" --ipv4-range="$IPV4_RANGE"
+    [ -n "$EGRESS_INTERFACE" ] && set -- "$@" --egress-masquerade-interfaces="$EGRESS_INTERFACE"
 
-# nodename.go init() reads K8S_NODE_NAME unconditionally, independent of
-# --enable-k8s=false. Unset falls back to hostname (fine single-node);
-# multi-agent setups need distinct names per node.
-if [ -n "$NODE_NAME" ]; then
-  export K8S_NODE_NAME="$NODE_NAME"
-else
-  unset K8S_NODE_NAME
-fi
+    # nodename.go init() reads K8S_NODE_NAME unconditionally, independent of
+    # --enable-k8s=false. Unset falls back to hostname (fine single-node);
+    # multi-agent setups need distinct names per node.
+    if [ -n "$NODE_NAME" ]; then
+      export K8S_NODE_NAME="$NODE_NAME"
+    else
+      unset K8S_NODE_NAME
+    fi
+    ;;
+
+  kubernetes)
+    # --- apiserver credentials -------------------------------------------
+    KUBECONFIG_PATH="${K8S_KUBECONFIG_PATH:-$SNAP_DATA/kubeconfig}"
+    if [ ! -f "$KUBECONFIG_PATH" ]; then
+      echo "kubernetes mode requires apiserver credentials; run: sudo cilium-snap.setup-k8s" >&2
+      exit 1
+    fi
+
+    # --- cluster config -----------------------------------------------
+    # cilium-snap.setup-k8s syncs kube-system/cilium-config here (minus the
+    # node-local keys set as explicit flags below, which --config-dir cannot
+    # override: pkg/option/config.go merges it as the lowest-precedence
+    # viper layer).
+    CONFIG_DIR="$SNAP_DATA/cilium-config"
+    CONFIG_DIR_ARGS=()
+    if [ -d "$CONFIG_DIR" ] && [ -n "$(ls -A "$CONFIG_DIR" 2>/dev/null)" ]; then
+      CONFIG_DIR_ARGS=(--config-dir="$CONFIG_DIR")
+    else
+      echo "no cluster config synced ($CONFIG_DIR empty); the agent will fall back to upstream defaults, which will not match the cluster -- run cilium-snap.setup-k8s or set extra-args" >&2
+    fi
+
+    # kubelet's node name on a k8s-snap node is the lowercased hostname
+    # (k8s/lib.sh:k8s::cmd::hostname); a mismatch here makes the agent manage
+    # a CiliumNode nobody else references.
+    export K8S_NODE_NAME="${NODE_NAME:-$(hostname | tr '[:upper:]' '[:lower:]')}"
+    export CILIUM_K8S_NAMESPACE="$K8S_NAMESPACE"
+    export KUBERNETES_SERVICE_HOST="$K8S_APISERVER_HOST"
+    export KUBERNETES_SERVICE_PORT="$K8S_APISERVER_PORT"
+
+    # Only node-local facts that the synced config-dir cannot carry
+    # correctly -- the upstream ConfigMap's procfs and
+    # write-cni-conf-when-ready are container paths (/host/...).
+    # --identity-allocation-mode=crd is fixed, not a snap key: attaching to
+    # k8s-snap's Cilium is always CRD mode, and --kvstore is never passed
+    # here.
+    set -- \
+      --enable-k8s=true \
+      --k8s-kubeconfig-path="$KUBECONFIG_PATH" \
+      --identity-allocation-mode=crd \
+      --bpf-root="$BPF_ROOT" \
+      --cgroup-root="$CGROUP_ROOT" \
+      --state-dir="$STATE_DIR" \
+      --lib-dir="$LIB_DIR" \
+      --procfs=/proc \
+      --write-cni-conf-when-ready="$CNI_CONF_DIR/05-cilium.conflist" \
+      --debug="$DEBUG"
+
+    [ "${#CONFIG_DIR_ARGS[@]}" -gt 0 ] && set -- "$@" "${CONFIG_DIR_ARGS[@]}"
+    ;;
+
+  *)
+    echo "mode must be 'standalone' or 'kubernetes', got '$MODE'" >&2
+    exit 1
+    ;;
+esac
 
 # shellcheck disable=SC2086
 exec "$SNAP/usr/bin/cilium-agent" "$@" $EXTRA_ARGS

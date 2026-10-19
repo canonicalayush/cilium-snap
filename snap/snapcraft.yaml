@@ -1,23 +1,35 @@
-# Cilium, packaged to run standalone -- with no Kubernetes apiserver.
+# Cilium, packaged to run standalone -- with no Kubernetes apiserver -- or
+# in kubernetes mode, as a per-node agent attached to a cluster whose CRDs
+# and operator come from the upstream Helm chart.
 #
 # Component pinning follows canonical/k8s-snap: each upstream project gets a
 # build-scripts/components/<name>/ directory holding `repository`, `version`
 # and `build.sh`, and build-component.sh clones and builds it.
 name: cilium-snap
 adopt-info: cilium
-summary: Cilium agent using an external etcd snap, running without Kubernetes
+summary: Cilium agent for standalone (etcd) or Kubernetes (apiserver) networking
 description: |
-  Cilium eBPF networking, observability and security, packaged to run on a
-  single host with no Kubernetes apiserver.
+  Cilium eBPF networking, observability and security, packaged to run as a
+  per-node host daemon in either of two modes.
 
-  Kubernetes normally supplies Cilium with identity allocation
-  (CiliumIdentity CRDs), policy (CiliumNetworkPolicy CRDs) and load-balancer
-  state (Service/EndpointSlice). Without an apiserver, Cilium needs a kvstore
-  instead -- and this is not optional: with --kvstore unset, the agent
-  silently rewrites identity-allocation-mode to "crd" and then requires an
-  apiserver it does not have. This snap therefore requires cilium-agent's
-  kvstore to be the separately-installed `etcd` snap, configured via
-  `cilium-snap.setup-etcd` (see README.md).
+  In standalone mode, there is no Kubernetes apiserver. Kubernetes normally
+  supplies Cilium with identity allocation (CiliumIdentity CRDs), policy
+  (CiliumNetworkPolicy CRDs) and load-balancer state (Service/EndpointSlice).
+  Without an apiserver, Cilium needs a kvstore instead -- and this is not
+  optional: with --kvstore unset, the agent silently rewrites
+  identity-allocation-mode to "crd" and then requires an apiserver it does
+  not have. This mode therefore requires cilium-agent's kvstore to be the
+  separately-installed `etcd` snap, configured via `cilium-snap.setup-etcd`
+  (see README.md).
+
+  In kubernetes mode, the agent runs against a real apiserver instead, with
+  identity and policy state in CRDs. The cluster needs an upstream
+  cilium-operator and those CRDs already installed -- by
+  `hack/install-cilium-operator.sh` in this repository -- and must have no
+  in-cluster Cilium agent DaemonSet of its own, since this snap is that
+  DaemonSet's per-node replacement. `cilium-snap.setup-k8s` mints this
+  node's apiserver credentials and syncs the cluster's Cilium settings (see
+  README.md).
 
   The snap also ships clang and the eBPF C sources, because cilium-agent
   compiles datapath templates at runtime rather than only loading prebuilt
@@ -167,3 +179,9 @@ apps:
   # not on every agent host.
   setup-etcd:
     command: bin/setup-etcd
+
+  # One-shot: mints apiserver credentials for this node's agent and syncs
+  # the cluster's cilium-config. Only needed in kubernetes mode, after the
+  # cluster has been prepared with hack/install-cilium-operator.sh.
+  setup-k8s:
+    command: bin/setup-k8s
