@@ -41,6 +41,10 @@ IPV4_RANGE="${5:-}"
 CLAIM_PREFIX="cilium-snap/ipam/claims/"
 LOCK_NAME="cilium-snap-ipam-lock"
 
+# $SNAP is only injected by `snap run` (cilium-agent-wrapper, the remove
+# hook); self-locate instead of requiring it, so this also works invoked
+# directly by its installed path (as the smoke suite does).
+SNAP="${SNAP:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
 ETCDCTL="$SNAP/usr/bin/etcdctl"
 export ETCDCTL_API=3
 # Not ETCDCTL_ENDPOINT*: etcdctl auto-maps any ETCDCTL_-prefixed env var to
