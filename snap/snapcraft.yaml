@@ -122,6 +122,11 @@ parts:
       - libatomic1
       - bpftool
       - rsync
+      # etcdctl, used only by bin/cilium-ipam-reserve to CAS-claim this
+      # node's --ipv4-range in etcd and detect collisions with other
+      # nodes sharing the same kvstore -- not the etcd server itself,
+      # that's the separate `etcd` snap (see README.md).
+      - etcd-client
     build-attributes: [enable-patchelf]
     stage:
       - -usr/share
