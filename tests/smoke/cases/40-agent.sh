@@ -43,7 +43,7 @@ etcd_host_port() {
   url="$(snap_config ETCD_LISTEN_URL)"
   [[ "$url" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]] \
     || fail "ETCD_LISTEN_URL in config.env is not host:port form: $url"
-  printf '%s %s' "${BASH_REMATCH[1]//[\[\]]/}" "${BASH_REMATCH[2]}"
+  printf '%s %s\n' "${BASH_REMATCH[1]//[\[\]]/}" "${BASH_REMATCH[2]}"
 }
 
 test_ipam_range_claimed_in_etcd() {
@@ -67,7 +67,7 @@ test_ipam_collision_rejected() {
   read -r host port < <(etcd_host_port)
   overlapping="$(snap_config IPV4_RANGE)"
   other_node="cilium-smoke-other-node-$$"
-  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
+  trap "\"\$ETCDCTL\" del cilium-snap/ipam/claims/${other_node} >/dev/null 2>&1 || true" EXIT
 
   if out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "$overlapping" 2>&1)"; then
     fail "cilium-ipam-reserve accepted an overlapping claim for a second node"
@@ -85,7 +85,7 @@ test_ipam_disjoint_claim_accepted() {
   local host port other_node out
   read -r host port < <(etcd_host_port)
   other_node="cilium-smoke-other-node-$$"
-  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
+  trap "\"\$ETCDCTL\" del cilium-snap/ipam/claims/${other_node} >/dev/null 2>&1 || true" EXIT
 
   out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "172.31.0.0/16" 2>&1)" \
     || fail "cilium-ipam-reserve rejected a disjoint range: $out"
