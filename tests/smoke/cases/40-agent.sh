@@ -26,6 +26,80 @@ test_ipam_cluster_pool_active() {
     "IPAM reports IPv4 allocation counters"
 }
 
+# --- cilium-ipam-reserve ------------------------------------------------
+# cluster-pool's per-node CIDR is a hand-set flag with no operator to
+# allocate it (see bin/cilium-ipam-reserve); these confirm the running
+# agent claimed its own range in etcd, and that a second node claiming an
+# overlapping range is refused rather than silently starting.
+
+ipam_reserve_bin() {
+  printf '/snap/%s/current/bin/cilium-ipam-reserve' "$SNAP_NAME"
+}
+
+# etcd_host_port -- echoes "<host> <port>" parsed from the configured
+# etcd-listen-url, same form cilium-agent-wrapper parses.
+etcd_host_port() {
+  local url
+  url="$(snap_config ETCD_LISTEN_URL)"
+  [[ "$url" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]] \
+    || fail "ETCD_LISTEN_URL in config.env is not host:port form: $url"
+  printf '%s %s\n' "${BASH_REMATCH[1]//[\[\]]/}" "${BASH_REMATCH[2]}"
+}
+
+test_ipam_range_claimed_in_etcd() {
+  local node_name configured_range claimed
+  node_name="$(snap_config NODE_NAME)"
+  [ -n "$node_name" ] || node_name="$(hostname)"
+  configured_range="$(snap_config IPV4_RANGE)"
+
+  claimed="$("$ETCDCTL" get "cilium-snap/ipam/claims/${node_name}" --print-value-only 2>&1)" \
+    || fail "failed to read this node's IPAM claim from etcd: $claimed"
+  assert_eq "$configured_range" "$claimed" \
+    "this node's configured ipv4-range is claimed in etcd under its own name"
+}
+
+test_ipam_collision_rejected() {
+  # Simulates a second node racing to claim a range that overlaps the
+  # already-running agent's. Must be refused, not silently accepted.
+  # set -eu is active per-case (lib/harness.sh run_case), so the expected
+  # non-zero exit below has to be caught by a conditional, not $?.
+  # other_node deliberately not `local`: the EXIT trap below defers
+  # expansion to fire time (after this function returns), and a local
+  # var is out of scope by then -- it has to survive in the enclosing
+  # run_case subshell, same as SMOKE_NETCONF in 70-connectivity.sh.
+  local host port overlapping out
+  read -r host port < <(etcd_host_port)
+  overlapping="$(snap_config IPV4_RANGE)"
+  other_node="cilium-smoke-other-node-$$"
+  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
+
+  if out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "$overlapping" 2>&1)"; then
+    fail "cilium-ipam-reserve accepted an overlapping claim for a second node"
+  fi
+  assert_contains "$out" "overlaps node" "rejection names the colliding node"
+
+  local leaked
+  leaked="$("$ETCDCTL" get "cilium-snap/ipam/claims/${other_node}" --print-value-only 2>/dev/null)"
+  assert_eq "" "$leaked" "the rejected claim was not written to etcd"
+}
+
+test_ipam_disjoint_claim_accepted() {
+  # A genuinely free range must still be claimable -- the check rejects
+  # collisions, not every second claimant.
+  # other_node deliberately not `local`; see test_ipam_collision_rejected.
+  local host port out
+  read -r host port < <(etcd_host_port)
+  other_node="cilium-smoke-other-node-disjoint-$$"
+  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
+
+  out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "172.31.0.0/16" 2>&1)" \
+    || fail "cilium-ipam-reserve rejected a disjoint range: $out"
+
+  local claimed
+  claimed="$("$ETCDCTL" get "cilium-snap/ipam/claims/${other_node}" --print-value-only)"
+  assert_eq "172.31.0.0/16" "$claimed" "the disjoint claim was written to etcd"
+}
+
 test_identity_allocation_via_kvstore() {
   # --identity-allocation-mode=kvstore is what replaces CiliumIdentity CRDs.
   local range_min range_max

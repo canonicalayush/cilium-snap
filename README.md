@@ -83,6 +83,8 @@ sudo snap set cilium-snap etcd-listen-url=http://<etcd-host-ip>:2379 node-name=h
 
 The `enable-auto-direct-node-routes=true` in the commands above assumes `host-a` and `host-b` share a common L2 segment; Cilium installs a direct route to a node's PodCIDR only when that node is reachable in the same broadcast domain. If the agent hosts are separated by an L3/routed boundary, leave the setting off and distribute the pod CIDRs another way -- static routes on the intervening routers, a BGP daemon, or an encapsulating routing mode.
 
+Cilium's own cluster-pool IPAM mode normally gets non-overlapping `ipv4-range`s from the cilium-operator; this snap ships no operator, so `ipv4-range` is a value you choose by hand per host. Before starting, `cilium-agent-wrapper` claims the configured range under `cilium-snap/ipam/claims/<node-name>` in etcd (guarded by an etcd distributed lock) and **refuses to start** if it overlaps a range already claimed by a different `node-name` -- two overlapping ranges would otherwise make `enable-auto-direct-node-routes` install routes that steer one node's pod traffic at another node's pods. A node reclaims its own prior range on restart without issue. Decommissioning a node cleanly (`sudo snap remove cilium-snap`) releases its claim automatically; a host that disappears without that step leaves its claim in etcd until an operator removes it by hand (`etcdctl del cilium-snap/ipam/claims/<node-name>`), so that exact range stays reserved for it.
+
 All nodes sharing one etcd instance must use the same `cluster-name` (the `default` default is fine as long as every node uses it).
 
 ## License
