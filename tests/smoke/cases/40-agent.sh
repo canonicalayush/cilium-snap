@@ -63,11 +63,15 @@ test_ipam_collision_rejected() {
   # already-running agent's. Must be refused, not silently accepted.
   # set -eu is active per-case (lib/harness.sh run_case), so the expected
   # non-zero exit below has to be caught by a conditional, not $?.
-  local host port overlapping other_node out
+  # other_node deliberately not `local`: the EXIT trap below defers
+  # expansion to fire time (after this function returns), and a local
+  # var is out of scope by then -- it has to survive in the enclosing
+  # run_case subshell, same as SMOKE_NETCONF in 70-connectivity.sh.
+  local host port overlapping out
   read -r host port < <(etcd_host_port)
   overlapping="$(snap_config IPV4_RANGE)"
   other_node="cilium-smoke-other-node-$$"
-  trap "\"\$ETCDCTL\" del cilium-snap/ipam/claims/${other_node} >/dev/null 2>&1 || true" EXIT
+  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
 
   if out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "$overlapping" 2>&1)"; then
     fail "cilium-ipam-reserve accepted an overlapping claim for a second node"
@@ -82,10 +86,11 @@ test_ipam_collision_rejected() {
 test_ipam_disjoint_claim_accepted() {
   # A genuinely free range must still be claimable -- the check rejects
   # collisions, not every second claimant.
-  local host port other_node out
+  # other_node deliberately not `local`; see test_ipam_collision_rejected.
+  local host port out
   read -r host port < <(etcd_host_port)
-  other_node="cilium-smoke-other-node-$$"
-  trap "\"\$ETCDCTL\" del cilium-snap/ipam/claims/${other_node} >/dev/null 2>&1 || true" EXIT
+  other_node="cilium-smoke-other-node-disjoint-$$"
+  trap '"$ETCDCTL" del "cilium-snap/ipam/claims/${other_node}" >/dev/null 2>&1 || true' EXIT
 
   out="$("$(ipam_reserve_bin)" claim "$other_node" "$host" "$port" "172.31.0.0/16" 2>&1)" \
     || fail "cilium-ipam-reserve rejected a disjoint range: $out"
