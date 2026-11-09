@@ -1,0 +1,134 @@
+#!/bin/bash
+# Claims (or releases) this node's --ipv4-range in etcd so two agents
+# sharing one kvstore cannot silently start with overlapping pod CIDRs.
+#
+# Cilium's cluster-pool IPAM mode normally gets non-overlapping per-node
+# CIDRs from cilium-operator, which subdivides one pool and writes the
+# result to each node's CiliumNode CRD
+# (operator/pkg/ipam/allocator/clusterpool). This snap ships no operator --
+# --ipv4-range is a flag the admin sets by hand per host (see
+# cilium-agent-wrapper and README.md "Running multiple agents against one
+# etcd instance"). Nothing upstream validates that choice against what
+# other nodes sharing the same etcd have already claimed: two overlapping
+# ranges would make --enable-auto-direct-node-routes install routes that
+# steer one node's pod traffic at another node's pods -- silent
+# cross-node traffic interception, not just a routing bug.
+#
+# This claims the configured range under cilium-snap/ipam/claims/<node>,
+# a prefix distinct from Cilium's own cilium/ keyspace, guarded by etcd's
+# distributed lock (etcdctl lock) so two agents racing to start at the
+# same time cannot both succeed with overlapping ranges. It does not
+# allocate a range -- the admin still picks it -- it only refuses to
+# start this agent when that choice collides with another node's claim
+# already in etcd.
+#
+# Known limitation: claims are not lease-bound. A node removed without a
+# clean `release` (host destroyed, not decommissioned via `snap remove`)
+# leaves its claim in etcd indefinitely, blocking that exact range for
+# any *other* node name until an admin runs
+# `cilium-ipam-reserve release <old-node-name> <etcd-host> <etcd-port>`
+# or deletes the key by hand. This is deliberate: failing loudly on a
+# stale claim is safer than silently expiring it and allowing a
+# collision to go undetected.
+set -eu
+
+MODE="${1:?usage: cilium-ipam-reserve <claim|release> <node-name> <etcd-host> <etcd-port> [ipv4-range]}"
+NODE_NAME="${2:?node name required}"
+ETCD_HOST="${3:?etcd host required}"
+ETCD_PORT="${4:?etcd port required}"
+IPV4_RANGE="${5:-}"
+
+CLAIM_PREFIX="cilium-snap/ipam/claims/"
+LOCK_NAME="cilium-snap-ipam-lock"
+
+# $SNAP is only injected by `snap run` (cilium-agent-wrapper, the remove
+# hook); self-locate instead of requiring it, so this also works invoked
+# directly by its installed path (as the smoke suite does).
+SNAP="${SNAP:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+ETCDCTL="$SNAP/usr/bin/etcdctl"
+export ETCDCTL_API=3
+# Not ETCDCTL_ENDPOINT*: etcdctl auto-maps any ETCDCTL_-prefixed env var to
+# a flag and warns loudly on stderr for ones it doesn't recognize.
+ETCD_ENDPOINT="http://${ETCD_HOST}:${ETCD_PORT}"
+
+case "$MODE" in
+  release)
+    # Best-effort: callers (the remove hook) must not fail on an
+    # unreachable etcd.
+    timeout 5 "$ETCDCTL" --endpoints "$ETCD_ENDPOINT" del "${CLAIM_PREFIX}${NODE_NAME}" >/dev/null 2>&1 || true
+    exit 0
+    ;;
+  claim)
+    ;;
+  *)
+    echo "cilium-ipam-reserve: unknown mode '$MODE' (want claim|release)" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "$IPV4_RANGE" ]; then
+  # No explicit range configured: cilium-agent will auto-derive one from
+  # the host's own interface address (ipam/cell/ipam_init.go
+  # setDefaultPrefix). That CIDR isn't known until the agent computes it
+  # itself, after this script would already need to have decided --
+  # out of scope for this check.
+  echo "cilium-ipam-reserve: ipv4-range not set, skipping collision check" >&2
+  exit 0
+fi
+
+ip4_to_int() {
+  local a b c d
+  IFS=. read -r a b c d <<<"$1"
+  [ -n "${d:-}" ] || return 1
+  echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
+}
+
+# cidr_bounds <cidr> -> echoes "<network-int> <broadcast-int>"
+cidr_bounds() {
+  local cidr="$1" ip prefix ip_int mask base
+  ip="${cidr%/*}"
+  prefix="${cidr#*/}"
+  case "$prefix" in '' | *[!0-9]*) return 1 ;; esac
+  [ "$prefix" -ge 0 ] && [ "$prefix" -le 32 ] || return 1
+  ip_int=$(ip4_to_int "$ip") || return 1
+  mask=$((prefix == 0 ? 0 : (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF))
+  base=$((ip_int & mask))
+  printf '%s %s\n' "$base" "$((base | (~mask & 0xFFFFFFFF)))"
+}
+
+ranges_overlap() {
+  local b1 e1 b2 e2
+  read -r b1 e1 < <(cidr_bounds "$1") || return 2
+  read -r b2 e2 < <(cidr_bounds "$2") || return 2
+  [ "$b1" -le "$e2" ] && [ "$b2" -le "$e1" ]
+}
+
+cidr_bounds "$IPV4_RANGE" >/dev/null || {
+  echo "cilium-ipam-reserve: '$IPV4_RANGE' is not a valid IPv4 CIDR, refusing to start" >&2
+  exit 1
+}
+
+check_and_claim() {
+  local key value node range
+  while IFS= read -r key && IFS= read -r value; do
+    [ -n "$key" ] || continue
+    node="${key#"$CLAIM_PREFIX"}"
+    [ "$node" != "$NODE_NAME" ] || continue
+    range="$value"
+    if ranges_overlap "$IPV4_RANGE" "$range"; then
+      echo "cilium-ipam-reserve: ipv4-range=$IPV4_RANGE overlaps node '$node' (etcd key ${CLAIM_PREFIX}${node}=$range) -- refusing to start" >&2
+      return 1
+    fi
+  done < <(timeout 5 "$ETCDCTL" --endpoints "$ETCD_ENDPOINT" get "$CLAIM_PREFIX" --prefix)
+
+  timeout 5 "$ETCDCTL" --endpoints "$ETCD_ENDPOINT" put "${CLAIM_PREFIX}${NODE_NAME}" "$IPV4_RANGE" >/dev/null
+}
+
+export -f check_and_claim ranges_overlap cidr_bounds ip4_to_int
+export CLAIM_PREFIX NODE_NAME IPV4_RANGE ETCD_ENDPOINT ETCDCTL ETCDCTL_API
+
+# Holds a cluster-wide etcd lock for the scan-then-write below, so two
+# agents racing to start at the same instant cannot both see an empty
+# scan and both write overlapping claims.
+timeout 10 "$ETCDCTL" --endpoints "$ETCD_ENDPOINT" lock "$LOCK_NAME" -- \
+  bash -c 'set -eu; check_and_claim'

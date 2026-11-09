@@ -41,6 +41,14 @@ for _ in $(seq 1 "$ETCD_WAIT_SECONDS"); do
   sleep 1
 done
 
+# --- IPAM range collision check -----------------------------------------
+# See cilium-ipam-reserve for why this exists: cluster-pool's per-node
+# CIDR is a flag the admin sets by hand here (no operator to allocate it),
+# so nothing else catches two nodes sharing this etcd with overlapping
+# --ipv4-range values.
+RESOLVED_NODE_NAME="${NODE_NAME:-$(hostname)}"
+"$SNAP/bin/cilium-ipam-reserve" claim "$RESOLVED_NODE_NAME" "$ETCD_HOST" "$ETCD_PORT" "$IPV4_RANGE"
+
 # --- flags -------------------------------------------------------------
 # --enable-k8s=false   pkg/option/config.go:177
 # --kvstore=etcd       mandatory: unset silently switches identity-allocation

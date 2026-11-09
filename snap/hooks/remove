@@ -1,7 +1,9 @@
 #!/bin/bash
 # Runs once, on removal. Undoes install-cni's host-side writes: snapd has no
 # notion that a one-shot app touched files outside $SNAP, so nothing else
-# cleans these up.
+# cleans these up. Also releases this node's IPAM range claim from etcd
+# (see bin/cilium-ipam-reserve) so a different node can reuse it later;
+# best-effort, must not fail removal if etcd is unreachable.
 set -eu
 
 CNI_BIN_DIR="${CNI_BIN_DIR:-/opt/cni/bin}"
@@ -11,3 +13,14 @@ rm -f "$CNI_CONF_DIR/05-cilium.conflist"
 for bin in cilium-cni loopback portmap host-local; do
   rm -f "$CNI_BIN_DIR/$bin"
 done
+
+# shellcheck disable=SC1091
+. "$SNAP/etc/defaults.env"
+[ -f "$SNAP_DATA/config.env" ] && . "$SNAP_DATA/config.env"
+
+if [[ "$ETCD_LISTEN_URL" =~ ^https?://(\[[^]]+\]|[^:/]+):([0-9]+)/?$ ]]; then
+  ETCD_HOST="${BASH_REMATCH[1]//[\[\]]/}"
+  ETCD_PORT="${BASH_REMATCH[2]}"
+  RESOLVED_NODE_NAME="${NODE_NAME:-$(hostname)}"
+  "$SNAP/bin/cilium-ipam-reserve" release "$RESOLVED_NODE_NAME" "$ETCD_HOST" "$ETCD_PORT" || true
+fi
