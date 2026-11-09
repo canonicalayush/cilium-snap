@@ -164,7 +164,7 @@ else
   echo "need kubectl (or the k8s snap) on PATH" >&2
   exit 1
 fi
-kubectl() { "${KUBECTL[@]}" --kubeconfig "$KUBECONFIG_PATH" "$@"; }
+kubectl() { command "${KUBECTL[@]}" --kubeconfig "$KUBECONFIG_PATH" "$@"; }
 
 # k8s-snap's own release would fight this one over the same objects.
 EXISTING_RELEASE="$(kubectl get configmap cilium-config -n "$NAMESPACE" \
