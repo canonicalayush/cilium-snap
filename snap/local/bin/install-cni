@@ -48,8 +48,8 @@ for bin in "$SNAP"/opt/cni/bin/*; do
   else
     install -m 0755 "$bin" "$CNI_BIN_DIR/$name"
     echo "installed $name -> $CNI_BIN_DIR"
+    echo "$CNI_BIN_DIR/$name" >> "$INSTALLED_BIN_MANIFEST"
   fi
-  echo "$name" >> "$INSTALLED_BIN_MANIFEST"
 done
 
 if [ "$MODE" = kubernetes ]; then

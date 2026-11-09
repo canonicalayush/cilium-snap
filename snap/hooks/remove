@@ -20,6 +20,6 @@ fi
 if [ -f "$INSTALLED_BIN_MANIFEST" ]; then
   while IFS= read -r bin; do
     [ -n "$bin" ] || continue
-    rm -f "$CNI_BIN_DIR/$bin"
+    rm -f "$bin"
   done < "$INSTALLED_BIN_MANIFEST"
 fi
