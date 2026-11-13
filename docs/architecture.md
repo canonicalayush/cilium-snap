@@ -22,10 +22,13 @@ This snap closes that gap with the separately-installed
 configured through the setup-etcd command.
 
 Which CRDs are and aren't replaced is covered in detail, with upstream
-source evidence, in findings/crd-replacement.md (an agent-summarised
-research doc, see findings.md). Short version: identity allocation and
-node state move to etcd. Network policy distribution and load-balancer
-state have no delivery mechanism in this snap yet.
+source evidence, in findings/crd-replacement.md and
+findings/etcd-role.md (agent-summarised research docs, see
+findings.md). Short version: etcd carries three state families for this
+snap, identities, node records, and pod IP-to-identity mappings, and
+the agent both writes and reads all three back. Network policy
+distribution and load-balancer state have no delivery mechanism in this
+snap yet.
 
 ## Build time
 

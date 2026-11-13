@@ -39,3 +39,5 @@ Match crd-replacement.md. Every finding file must follow this style:
 - crd-replacement.md: which of upstream Cilium's Kubernetes CRDs this
   snap's standalone packaging replaces, avoids, or still has no
   mechanism for.
+- etcd-role.md: key-by-key breakdown of what etcd's kvstore mode
+  actually carries for cilium-agent versus what it does not.

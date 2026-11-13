@@ -13,6 +13,9 @@ is stable across that gap, the exact CRD count may not be) and this
 repo's packaging (snap/snapcraft.yaml, cilium-agent-wrapper,
 defaults.env, snap/hooks/configure, tests/smoke/).
 
+For the full etcd key-by-key breakdown, what kvstore mode actually
+carries versus what it does not, see etcd-role.md.
+
 ## 1. Why Cilium has CRDs at all
 
 Under Kubernetes, Cilium gets three things from the apiserver it cannot
@@ -170,10 +173,10 @@ ClusterIP/NodePort-style virtual-IP load balancing in this snap today.
 
 ### 3c. Hard blockers: no in-tree substitute exists upstream, for anyone
 
-Of the 25 CRDs, upstream has no non-CRD backend at all, a gap in Cilium
-itself, not in this snap's wiring, for: CiliumNode, CiliumEndpoint,
-CiliumEndpointSlice, CiliumLocalRedirectPolicy,
-CiliumEgressGatewayPolicy, CiliumEnvoyConfig,
+Of the remaining 23 CRDs (CiliumEndpoint and CiliumEndpointSlice are
+covered just below, not here), upstream has no non-CRD backend at all,
+a gap in Cilium itself, not in this snap's wiring, for: CiliumNode,
+CiliumLocalRedirectPolicy, CiliumEgressGatewayPolicy, CiliumEnvoyConfig,
 CiliumClusterwideEnvoyConfig, CiliumNodeConfig, CiliumCIDRGroup,
 CiliumLoadBalancerIPPool, the CiliumBGP* types,
 CiliumL2AnnouncementPolicy, CiliumPodIPPool, CiliumGatewayClassConfig,
@@ -184,12 +187,16 @@ announcements, egress gateway, local redirect, LB/pod IP pools and
 Gateway API are operator-driven, multi-node, or Service-shaped features
 this single-host snap doesn't attempt. CiliumEndpoint/CiliumEndpointSlice
 are the exception with real relevance: they're how multi-node
-deployments propagate remote pod IP-to-identity mappings. The kvstore
-backend has its own IP-cache distribution, but there is no confirmed 1:1
-substitute for cross-node endpoint visibility without CiliumEndpoint
-sync. Open question, not confirmed either way by current smoke coverage
-(which only exercises two network namespaces on a single host,
-70-connectivity.sh:5-7).
+deployments propagate remote pod IP-to-identity mappings. This is
+confirmed, not an open question: the kvstore cilium/state/ip/v1/default/<ip>
+prefix carries pod IP-to-identity across nodes, written per-endpoint by
+runIPIdentitySync (pkg/endpoint/policy.go:1199) and read by
+LocalIPIdentityWatcher, which runs for any agent with a kvstore and no
+ClusterMesh (pkg/ipcache/kvstore.go:152-190); see etcd-role.md section 6
+for the full mechanism. What remains unverified is only the end-to-end
+multi-host test, not the mechanism: this snap's current smoke coverage
+only exercises two network namespaces on a single host
+(70-connectivity.sh:5-7).
 
 ## 4. Summary table
 
@@ -200,7 +207,7 @@ sync. Open question, not confirmed either way by current smoke coverage
 | CRD-sync startup gate | operator-installed CRDs | Yes, skipped | --enable-k8s=false | 40-agent.sh:10-16 |
 | CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy | apiserver | No | upstream has --static-cnp-path, not wired up here | grep: zero hits in repo |
 | Service/Endpoints/EndpointSlice (LB state) | apiserver | No | upstream has --lb-state-file, not wired up here | grep: zero hits in repo |
-| CiliumEndpoint/CiliumEndpointSlice (cross-node) | apiserver | No, and no upstream substitute exists | n/a | hard blocker |
+| CiliumEndpoint/CiliumEndpointSlice (cross-node) | apiserver | Yes, mechanism confirmed, no end-to-end smoke coverage | kvstore ipcache sync via cilium/state/ip/v1 | etcd-role.md section 6; pkg/ipcache/kvstore.go:152-190 |
 | BGP / L2 announce / Envoy config / egress gateway / LRP / LB-IP-pools / Gateway API (12 CRDs) | apiserver + operator | No, and no upstream substitute exists | n/a | hard blocker, feature not attempted |
 
 ## 5. Open gaps / recommendations
@@ -221,9 +228,10 @@ sync. Open question, not confirmed either way by current smoke coverage
   single-host CNI use case but would be needed before this snap could
   claim any Service/NodePort-style functionality, currently none is
   advertised or tested.
-- Cross-node CiliumEndpoint propagation is unverified, not just
-  unimplemented. Multi-agent setups rely on kvstore node state (2a) for
-  routing but have not been confirmed to replicate the
-  identity-visibility guarantees CiliumEndpoint/CiliumEndpointSlice give
-  under Kubernetes. Worth an explicit multi-host smoke scenario before
-  this snap's documentation promises cross-node policy enforcement.
+- Cross-node CiliumEndpoint propagation mechanism is confirmed (kvstore
+  ipcache sync, etcd-role.md section 6) but lacks end-to-end smoke
+  coverage. Multi-agent setups rely on this mechanism and on kvstore
+  node state (2a) for routing, but nothing currently asserts that a
+  remote pod's IP-to-identity mapping actually lands in a peer's local
+  ipcache. Worth an explicit multi-host smoke scenario before this
+  snap's documentation promises cross-node policy enforcement.

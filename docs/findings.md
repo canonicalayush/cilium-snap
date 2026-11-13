@@ -18,3 +18,8 @@ findings into this file.
   replaces, which it avoids needing, and which gaps remain. Notably: no
   network policy or load-balancer state delivery mechanism is wired up
   yet.
+- [What etcd actually does for cilium-agent in this snap](findings/etcd-role.md).
+  Key-by-key breakdown of what kvstore mode actually carries (identities,
+  node records, pod IP-to-identity mappings) versus what it does not
+  (policy, local endpoint state, service/load-balancer state), with the
+  failure modes when etcd is absent or late.
