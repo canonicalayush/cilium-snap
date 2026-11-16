@@ -141,6 +141,31 @@ call, and release-then-reclaim-by-another-node works. Smoke-test
 coverage: 40-agent.sh (test_ipam_range_claimed_in_etcd,
 test_ipam_collision_rejected, test_ipam_disjoint_claim_accepted).
 
+### 2e. CiliumEndpoint/CiliumEndpointSlice: kvstore ipcache sync (wired up, unconditionally)
+
+Upstream has a genuine non-CRD substitute for this one too, missed in
+an earlier pass of this document: pkg/ipcache/kvstore.go's
+IPIdentitySynchronizer (writer) and LocalIPIdentityWatcher (reader),
+wired unconditionally in pkg/ipcache/cell/cell.go:42,57 whenever the
+kvstore client is enabled (LocalIPIdentityWatcher.IsEnabled() delegates
+to client.IsEnabled(), with no dependency on --enable-k8s or
+clustermesh). This is distinct from pkg/clustermesh/clustermesh.go's
+NewIPIdentityWatcher, which is clustermesh's separate *remote*-cluster
+reader; LocalIPIdentityWatcher watches the agent's own cluster.
+
+Each agent publishes its local endpoints' IP->identity mappings to
+cilium/state/ip/v1/<cluster-name>/<ip> (pkg/ipcache/kvstore.go:38,97)
+and every other agent sharing that etcd watches the same prefix and
+feeds the result into its own BPF ipcache map. Since
+cilium-agent-wrapper:80 sets --kvstore=etcd unconditionally (2a), this
+mechanism is already active for every agent this snap runs, with no
+extra flag or config key needed.
+
+Not yet proven by this repo's own smoke suite: 70-connectivity.sh only
+exercises two network namespaces on a single host (line 5-7), so
+cross-*node* propagation is confirmed by reading the upstream source,
+not by a multi-host test here.
+
 ## 3. What this snap does not replace
 
 Grepping this repo for the other two upstream substitutes
@@ -171,25 +196,26 @@ ClusterIP/NodePort-style virtual-IP load balancing in this snap today.
 ### 3c. Hard blockers: no in-tree substitute exists upstream, for anyone
 
 Of the 25 CRDs, upstream has no non-CRD backend at all, a gap in Cilium
-itself, not in this snap's wiring, for: CiliumNode, CiliumEndpoint,
-CiliumEndpointSlice, CiliumLocalRedirectPolicy,
-CiliumEgressGatewayPolicy, CiliumEnvoyConfig,
-CiliumClusterwideEnvoyConfig, CiliumNodeConfig, CiliumCIDRGroup,
-CiliumLoadBalancerIPPool, the CiliumBGP* types,
+itself, not in this snap's wiring, for: CiliumNode,
+CiliumLocalRedirectPolicy, CiliumEgressGatewayPolicy,
+CiliumEnvoyConfig, CiliumClusterwideEnvoyConfig, CiliumNodeConfig,
+CiliumCIDRGroup, CiliumLoadBalancerIPPool, the CiliumBGP* types,
 CiliumL2AnnouncementPolicy, CiliumPodIPPool, CiliumGatewayClassConfig,
 CiliumDatapathPlugin, CiliumNetworkDriver*, CiliumResourceIPPool.
+(CiliumNode itself is listed here only for IPAM/node-state purposes
+not already covered by 2b/2d; it has no non-CRD backend for the
+WireGuard/health-check fields it also carries.)
 
-Most of these don't matter for this snap's standalone mode: BGP, L2
+CiliumEndpoint/CiliumEndpointSlice were previously listed here too;
+that was wrong. See 2e: the kvstore ipcache sync
+(IPIdentitySynchronizer/LocalIPIdentityWatcher) is a real substitute,
+already active unconditionally via --kvstore=etcd, independent of
+--enable-k8s or clustermesh.
+
+The rest don't matter for this snap's standalone mode: BGP, L2
 announcements, egress gateway, local redirect, LB/pod IP pools and
-Gateway API are operator-driven, multi-node, or Service-shaped features
-this single-host snap doesn't attempt. CiliumEndpoint/CiliumEndpointSlice
-are the exception with real relevance: they're how multi-node
-deployments propagate remote pod IP-to-identity mappings. The kvstore
-backend has its own IP-cache distribution, but there is no confirmed 1:1
-substitute for cross-node endpoint visibility without CiliumEndpoint
-sync. Open question, not confirmed either way by current smoke coverage
-(which only exercises two network namespaces on a single host,
-70-connectivity.sh:5-7).
+Gateway API are operator-driven, multi-node, or Service-shaped
+features this single-host snap doesn't attempt.
 
 ## 4. Summary table
 
@@ -200,7 +226,7 @@ sync. Open question, not confirmed either way by current smoke coverage
 | CRD-sync startup gate | operator-installed CRDs | Yes, skipped | --enable-k8s=false | 40-agent.sh:10-16 |
 | CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy | apiserver | No | upstream has --static-cnp-path, not wired up here | grep: zero hits in repo |
 | Service/Endpoints/EndpointSlice (LB state) | apiserver | No | upstream has --lb-state-file, not wired up here | grep: zero hits in repo |
-| CiliumEndpoint/CiliumEndpointSlice (cross-node) | apiserver | No, and no upstream substitute exists | n/a | hard blocker |
+| CiliumEndpoint/CiliumEndpointSlice (cross-node) | apiserver | Yes, unconditionally | --kvstore=etcd (same flag as CiliumIdentity) activates IPIdentitySynchronizer + LocalIPIdentityWatcher (2e) | pkg/ipcache/kvstore.go:38,62,156; pkg/ipcache/cell/cell.go:42,57; no dedicated smoke test, single-host only |
 | BGP / L2 announce / Envoy config / egress gateway / LRP / LB-IP-pools / Gateway API (12 CRDs) | apiserver + operator | No, and no upstream substitute exists | n/a | hard blocker, feature not attempted |
 
 ## 5. Open gaps / recommendations
@@ -221,9 +247,9 @@ sync. Open question, not confirmed either way by current smoke coverage
   single-host CNI use case but would be needed before this snap could
   claim any Service/NodePort-style functionality, currently none is
   advertised or tested.
-- Cross-node CiliumEndpoint propagation is unverified, not just
-  unimplemented. Multi-agent setups rely on kvstore node state (2a) for
-  routing but have not been confirmed to replicate the
-  identity-visibility guarantees CiliumEndpoint/CiliumEndpointSlice give
-  under Kubernetes. Worth an explicit multi-host smoke scenario before
-  this snap's documentation promises cross-node policy enforcement.
+- Cross-node CiliumEndpoint propagation (2e) is wired by source reading
+  (IPIdentitySynchronizer + LocalIPIdentityWatcher, active whenever
+  --kvstore=etcd is set) but has no smoke coverage: 70-connectivity.sh
+  only exercises two network namespaces on one host. Worth an explicit
+  multi-host smoke scenario before this snap's documentation promises
+  cross-node policy enforcement from this mechanism.
