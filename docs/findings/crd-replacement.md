@@ -7,10 +7,21 @@
 > claim here.
 
 Reviewed against upstream Cilium (pinned reference main @
-1.21.0-dev/bf3e61f257; this snap itself pins
-build-scripts/components/cilium/version = v1.20.0, the mechanism below
-is stable across that gap, the exact CRD count may not be) and this
-repo's packaging (snap/snapcraft.yaml, cilium-agent-wrapper,
+1.21.0-dev/bf3e61f257 for the mechanism prose; the full per-CRD
+inventory below was re-walked against the live checkout at
+/project/git/cilium, commit 8b0d8e1c9f, 2026-11-13 -- that checkout
+has grown to 26 CRDs, one more than the 25 the mechanism prose was
+originally checked against, because CiliumResourceNetworkConfig
+postdates bf3e61f257. This snap itself pins
+build-scripts/components/cilium/version = v1.20.0, which at that tag
+ships only 22 CRDs -- 17 in v2, 5 in v2alpha1, missing
+CiliumNetworkDriverClusterConfig, CiliumNetworkDriverNodeConfig,
+CiliumResourceIPPool and CiliumResourceNetworkConfig (all four in
+v2alpha1, added upstream after v1.20.0; the five CiliumBGP* CRDs are
+present at v1.20.0 already, they are not part of this drift).
+None of that drift changes which mechanisms are substitutes;
+it only changes the CRD count and the "hard blocker" tally below) and
+this repo's packaging (snap/snapcraft.yaml, cilium-agent-wrapper,
 defaults.env, snap/hooks/configure, tests/smoke/).
 
 For the full etcd key-by-key breakdown, what kvstore mode actually
@@ -33,16 +44,20 @@ notes that with --kvstore unset the agent silently rewrites
 identity-allocation-mode to "crd" and then requires an apiserver it
 doesn't have.
 
-Beyond those three, Cilium ships 25 CRDs total (upstream, main), all
-registered from embedded YAML by the operator only
-(pkg/k8s/apis/cell.go:68, createCRDs, unless --skip-crd-creation), 17 in
-cilium.io/v2 and 8 in cilium.io/v2alpha1.
+Beyond those three, Cilium ships 26 CRDs as of the current
+/project/git/cilium checkout (pkg/k8s/apis/cilium.io/client/crds/v2/
+and .../v2alpha1/, 17 YAML files in v2, 9 in v2alpha1), all registered
+from embedded YAML by the operator only (pkg/k8s/apis/cell.go:68,
+createCRDs, unless --skip-crd-creation). This snap's pinned v1.20.0
+build ships 22 of them (see the version-drift note above); the four
+newest are not yet relevant to a v1.20.0-pinned build but are included
+below for completeness against current upstream.
 
 This snap packages only cilium-agent and host-side helpers
 (build-scripts/components/cilium/build.sh:8-12 builds agent, cilium-dbg,
 cilium-health, bugtool, hubble, the CNI plugin, and tools/*, no operator
 binary). There is no operator here, so nothing could register or serve
-any of the 25 CRDs even if an apiserver existed. The design point is to
+any of those CRDs even if an apiserver existed. The design point is to
 avoid needing an apiserver, and therefore an operator, at all.
 
 ## 2. What this snap replaces, and how
@@ -173,14 +188,40 @@ ClusterIP/NodePort-style virtual-IP load balancing in this snap today.
 
 ### 3c. Hard blockers: no in-tree substitute exists upstream, for anyone
 
-Of the remaining 23 CRDs (CiliumEndpoint and CiliumEndpointSlice are
-covered just below, not here), upstream has no non-CRD backend at all,
-a gap in Cilium itself, not in this snap's wiring, for: CiliumNode,
-CiliumLocalRedirectPolicy, CiliumEgressGatewayPolicy, CiliumEnvoyConfig,
-CiliumClusterwideEnvoyConfig, CiliumNodeConfig, CiliumCIDRGroup,
-CiliumLoadBalancerIPPool, the CiliumBGP* types,
-CiliumL2AnnouncementPolicy, CiliumPodIPPool, CiliumGatewayClassConfig,
-CiliumDatapathPlugin, CiliumNetworkDriver*, CiliumResourceIPPool.
+Of the remaining 20 CRDs in the current /project/git/cilium checkout
+(CiliumEndpoint and CiliumEndpointSlice are covered just below, not
+here; CiliumNode is covered by 2b/2d for the IPAM/pod-CIDR fields this
+snap actually needs, but still has no substitute for the WireGuard
+pubkey and health-check IP fields it also carries; this snap's pinned
+v1.20.0 build ships 16 of these 20, see the version-drift note in the
+intro), upstream has no non-CRD backend at all, a gap in Cilium
+itself, not in this snap's wiring. Per CRD, checked against
+pkg/option/config.go for any CLI flag naming the feature plus
+"file"/"path" (none found beyond the bool toggles noted):
+
+| CRD | v1.20.0? | What normally configures it | Why no substitute exists |
+|---|---|---|---|
+| CiliumLocalRedirectPolicy | Yes | apiserver, operator-driven | pkg/redirectpolicy watches k8s only; no `--local-redirect-*` directory/file flag exists |
+| CiliumEgressGatewayPolicy | Yes | apiserver, operator-driven | pkg/egressgateway watches k8s only; no file-based policy source |
+| CiliumEnvoyConfig | Yes | apiserver | pkg/envoy sources xDS config only from the CRD watcher; `--enable-envoy-config` is a bool kill switch (this snap sets it false), not a substitute delivery channel |
+| CiliumClusterwideEnvoyConfig | Yes | apiserver | same mechanism as CiliumEnvoyConfig, cluster-scoped |
+| CiliumNodeConfig | Yes | apiserver | per-node config override, apiserver-only; config.go's `NodeConfigFile`/`GetNodeConfigPath` is an unrelated BPF datapath header, not a substitute |
+| CiliumCIDRGroup | Yes | apiserver | only consumed as a label-selector helper inside CNP/CCNP processing; no flag to define a group outside the apiserver |
+| CiliumLoadBalancerIPPool | Yes | apiserver + operator (LB-IPAM) | pool allocation is operator-driven only; distinct from `--lb-state-file` (3b), which replaces Service/EndpointSlice, not pool definitions |
+| CiliumBGPClusterConfig | Yes | apiserver | BGP Control Plane v2 (pkg/bgpv2) is entirely CRD-configured, no CLI/file config path |
+| CiliumBGPNodeConfig | Yes | apiserver | same |
+| CiliumBGPNodeConfigOverride | Yes | apiserver | same |
+| CiliumBGPPeerConfig | Yes | apiserver | same |
+| CiliumBGPAdvertisement | Yes | apiserver | same |
+| CiliumL2AnnouncementPolicy | Yes | apiserver | L2 announcement agent reads policy via the k8s watcher only |
+| CiliumPodIPPool | Yes | apiserver + operator (multi-pool IPAM) | pool definitions are operator/apiserver-only |
+| CiliumGatewayClassConfig | Yes | apiserver | Gateway API integration, apiserver/operator-only |
+| CiliumDatapathPlugin | Yes | apiserver | `--enable-datapath-plugins` (config.go:954-955) only toggles whether plugins run; per-plugin config still comes from the CRD, so the flag alone configures nothing |
+| CiliumNetworkDriverClusterConfig | No (added after v1.20.0) | apiserver | no CLI flag found naming this feature at all |
+| CiliumNetworkDriverNodeConfig | No (added after v1.20.0) | apiserver | same |
+| CiliumResourceIPPool | No (added after v1.20.0) | apiserver | same |
+| CiliumResourceNetworkConfig | No (newest, postdates even the 1.21.0-dev reference commit) | apiserver | same |
+
 
 Most of these don't matter for this snap's standalone mode: BGP, L2
 announcements, egress gateway, local redirect, LB/pod IP pools and
@@ -208,7 +249,7 @@ only exercises two network namespaces on a single host
 | CiliumNetworkPolicy / CiliumClusterwideNetworkPolicy | apiserver | No | upstream has --static-cnp-path, not wired up here | grep: zero hits in repo |
 | Service/Endpoints/EndpointSlice (LB state) | apiserver | No | upstream has --lb-state-file, not wired up here | grep: zero hits in repo |
 | CiliumEndpoint/CiliumEndpointSlice (cross-node) | apiserver | Yes, mechanism confirmed, no end-to-end smoke coverage | kvstore ipcache sync via cilium/state/ip/v1 | etcd-role.md section 6; pkg/ipcache/kvstore.go:152-190 |
-| BGP / L2 announce / Envoy config / egress gateway / LRP / LB-IP-pools / Gateway API (12 CRDs) | apiserver + operator | No, and no upstream substitute exists | n/a | hard blocker, feature not attempted |
+| BGP / L2 announce / Envoy config / egress gateway / LRP / LB-IP-pools / Gateway API / node config / CIDR group / datapath plugin / network driver config / resource pools (20 CRDs) | apiserver + operator | No, and no upstream substitute exists for any of them | n/a | hard blocker, feature not attempted; full per-CRD breakdown in 3c |
 
 ## 5. Open gaps / recommendations
 
