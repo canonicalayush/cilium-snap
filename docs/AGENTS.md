@@ -2,8 +2,8 @@
 
 ## Overview
 Project documentation: architecture, setup, configuration and testing
-guides, an architecture diagram, and the findings index with its
-per-investigation write-ups in findings/.
+guides, an architecture diagram, a standalone Cilium architecture primer,
+and the findings index with its per-investigation write-ups in findings/.
 
 ## Key Files & Directories
 - architecture.md: build-time and runtime architecture, snap parts,
@@ -15,6 +15,11 @@ per-investigation write-ups in findings/.
 - configuration.md: full `snap set` key reference and the multi-agent
   setup recipe.
 - testing.md: smoke test suite usage, structure, and CI workflows.
+- cilium-primer.md: standalone reference on upstream Cilium itself (not
+  this packaging): components, eBPF datapath, identity, CRDs, routing,
+  IPAM, kube-proxy replacement, policy, Hubble, the cilium/cilium-dbg/hubble
+  CLIs, and a debugging checklist. Grounded in docs.cilium.io, no
+  dependency on anything else in this repo.
 - findings.md: index of agent-summarised investigation write-ups kept
   in findings/. Add new findings there and list them here, don't inline
   them.
