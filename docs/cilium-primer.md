@@ -473,7 +473,7 @@ place. Cilium supports several IPAM modes, chosen per cluster, not per pod:
 | Multi-Pool | Cilium, with multiple pools and per-node/per-pool flexibility | Mixed CIDR sizes or multiple address pools per cluster |
 | CRD-backed | An external controller writing to a CRD | Integrating with an external IPAM system |
 | AWS ENI | AWS, via the EC2 API | Running on AWS with VPC-native pod IPs |
-| Azure IPAM | Azure | Running on AKS with VNet-native pod IPs |
+| Azure IPAM | Azure | Running on Azure Kubernetes Service with VNet-native pod IPs |
 | GKE | Google Cloud, via Alias IP ranges | Running on GKE |
 
 ([IP Address Management overview](https://docs.cilium.io/en/stable/network/concepts/ipam/))
