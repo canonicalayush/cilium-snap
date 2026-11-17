@@ -17,6 +17,9 @@ integration utilities Cilium needs at runtime.
 - [Configuration](docs/configuration.md): every `snap set` key, and the
   multi-host/multi-agent recipe.
 - [Testing](docs/testing.md): the smoke test suite and CI workflows.
+- [Cilium Primer](docs/cilium-primer.md): a from-scratch reference on
+  upstream Cilium itself, architecture, networking, CRDs, and debugging
+  with cilium-dbg and Hubble, independent of this repo's packaging.
 - [Findings](docs/findings.md): agent-summarised investigation
   write-ups.
 
