@@ -52,7 +52,7 @@ RESOLVED_NODE_NAME="${NODE_NAME:-$(hostname)}"
 # --- flags -------------------------------------------------------------
 # --enable-k8s=false   pkg/option/config.go:177
 # --kvstore=etcd       mandatory: unset silently switches identity-allocation
-#                      to "crd" (config.go:2784-2789), which needs an apiserver.
+#                      to "crd" (config.go:2799-2808), which needs an apiserver.
 # --ipam               cluster-pool only needs --ipv4-range; crd/eni/azure/
 #                      alibabacloud/multi-pool need a CiliumNode (apiserver).
 #                      delegated-plugin works but needs the flag chain below.

@@ -72,7 +72,7 @@ Replaced by --kvstore=etcd plus --identity-allocation-mode=kvstore, set
 unconditionally in cilium-agent-wrapper:70-74. The wrapper's own
 comments (cilium-agent-wrapper:46-47) explain why this is mandatory
 rather than a tunable: an empty --kvstore silently rewrites
-identity-allocation-mode to crd (pkg/option/config.go:2784-2789), and
+identity-allocation-mode to crd (pkg/option/config.go:2799-2808), and
 the CRD backend then has no apiserver to talk to. That failure mode is
 not fatal, it's a silent stall: InitIdentityAllocator is never called,
 and every AllocateIdentity call blocks until
@@ -81,8 +81,8 @@ pkg/identity/cache/allocator.go:328,447-455).
 
 This snap packages a separate component, the etcd snap driven by
 cilium-snap.setup-etcd, for no other reason than to be this identity
-(and node-state) backend. README.md and snapcraft.yaml:166-168 document
-it as a hard runtime dependency.
+(and node-state) backend. README.md and snapcraft.yaml:173-174 (the
+setup-etcd app) document it as a hard runtime dependency.
 
 Verified by the smoke suite: 40-agent.sh:29-37
 (test_identity_allocation_via_kvstore), 70-connectivity.sh:92-108
