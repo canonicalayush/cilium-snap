@@ -51,7 +51,7 @@ parts:
     plugin: nil
     build-snaps:
       # Matches the Go in Cilium's own builder image
-      # (images/builder/Dockerfile GOLANG_IMAGE golang:1.27.1).
+      # (images/builder/Dockerfile GOLANG_IMAGE golang:1.26.5).
       - go/1.27/stable
     build-packages:
       - build-essential

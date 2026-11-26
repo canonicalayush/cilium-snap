@@ -231,7 +231,7 @@ The most counter-intuitive finding:
   and encapsulation is off (`pkg/datapath/linux/node.go:831-838` →
   `installDirectRoute` `:542-570`). This is exactly what
   `enable-auto-direct-node-routes`
-  (`snap/local/etc/defaults.env:35-38`, `README.md:62,64-88`) depends on,
+  (`snap/local/etc/defaults.env:35-38`, `docs/configuration.md:33,58`) depends on,
   and why overlapping `ipv4-range` values are dangerous enough to warrant
   `snap/local/bin/cilium-ipam-reserve`.
 - **Trap worth documenting:** `NewNodeDiscovery` returns an empty, inert
@@ -327,7 +327,7 @@ netns).
   which `daemon/cmd/cells.go` never imports. A standalone agent neither
   writes nor requires it; its absence causes no warning and no startup
   block. Worth stating explicitly, because `cluster-name`/`cluster-id` are
-  user-facing `snap set` keys (`README.md:60`) and a reader may expect a
+  user-facing `snap set` keys (`docs/configuration.md:31`) and a reader may expect a
   cluster-config key to appear in etcd.
 
 Summary: three state-input channels feed cilium-agent here: Kubernetes/
@@ -355,7 +355,7 @@ agent API (`--state-dir`, CNI via REST, `--static-cnp-path`,
 
 1. etcd is a hard dependency even single-node: without it
    `--identity-allocation-mode` is rewritten to `crd`
-   (`pkg/option/config.go:2784-2793`, warning `"Running Cilium with %q=%q
+   (`pkg/option/config.go:2799-2808`, warning `"Running Cilium with %q=%q
    requires identity allocation via CRDs. Changing %s to %q"`), which then
    needs an apiserver this snap does not have.
 2. Single-node value of etcd is identity allocation + identity stability
@@ -371,7 +371,7 @@ agent API (`--state-dir`, CNI via REST, `--static-cnp-path`,
    node IPs/CIDRs and every pod IP→identity mapping are readable by
    anything that can reach the client port, reinforcing the
    `etcd-bind-address` warning in `snap/local/bin/setup-etcd:40-52` and
-   `README.md:58`.
+   `docs/configuration.md:30`.
 7. Suggested verification gap: a multi-host smoke scenario asserting node
    B's pod IP appears in node A's `cilium-dbg bpf ipcache list` would prove
    §6 end-to-end; current coverage is single-host.
